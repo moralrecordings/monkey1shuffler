@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from io import BytesIO, IOBase
-from typing import Any, Callable
+from typing import Any, Callable, Literal
 
 from mrcrowbar.common import BytesReadType
 from mrcrowbar.transforms import TransformResult
 from mrcrowbar import models as mrc, utils
 
-verbs4: dict[int, str] = {
+V4_VERBS: dict[int, str] = {
     1: "open",
     2: "close",
     3: "give",
@@ -26,7 +26,7 @@ verbs4: dict[int, str] = {
     255: "default"
 }
 
-var_names4: list[str|None] = [
+V4_VARNAMES: list[str|None] = [
 #	/* 0 */
 	"VAR_RESULT",
 	"VAR_EGO",
@@ -120,7 +120,7 @@ class V4Instr:
     opcode: int
     name: str = ""
     args: dict[str, Any] = field(default_factory=dict)
-    target: str | None = None
+    target: V4Var | None = None
     raw: bytes = b""
     repr: Callable[[V4Instr], str] | None = None
    
@@ -138,6 +138,48 @@ class V4Instr:
         return result
 
 
+def var_name(var_id: int, extra: int | None=None) -> str:
+    if var_id in range(len(V4_VARNAMES)):
+        res = V4_VARNAMES[var_id]
+        if res:
+            return res
+
+    if var_id & 0x8000:
+        return f"VAR[{(var_id & 0xff0) >> 4} bit {var_id & 0x00f}]"
+
+    base = "LOCAL" if var_id & 0x4000 else "VAR"
+
+    if var_id & 0x2000 and extra is not None:
+        return f"{base}[{var_id & 0xfff} + {var_name(extra)}]"
+
+    return f"{base}[{var_id & 0xfff}]"
+
+def var_raw(var_id: int, extra: int | None=None) -> bytes:
+    return utils.to_uint16_le(var_id) + (b'' if extra is None else utils.to_uint16_le(extra))
+
+
+@dataclass
+class V4Var:
+    id: int
+    extra: int | None
+    
+    def __repr__(self) -> str:
+        return var_name(self.id, self.extra)
+
+    def __str__(self) -> str:
+        return var_name(self.id, self.extra)
+
+    def raw(self) -> bytes:
+        return var_raw(self.id, self.extra)
+
+@dataclass
+class V4TextToken:
+    name: str
+    data: bytes | str | int | V4Var | None = None
+    
+    def __str__(self):
+        return f"{self.name}({repr(self.data) if self.data is not None else ''})"
+
 
 def get_byte_or_none(stream: IOBase) -> int | None:
     data = stream.read(1)
@@ -154,8 +196,8 @@ def get_signed_word(stream: IOBase) -> int:
 def get_unsigned_word(stream: IOBase) -> int:
     return utils.from_uint16_le(stream.read(2))
 
-def get_vararg(stream: IOBase) -> list[int | str]:
-    result: list[str | int] = []
+def get_vararg(stream: IOBase) -> list[int | V4Var]:
+    result: list[int | V4Var] = []
     while True:
         test = get_byte(stream)
         if test == 0xff:
@@ -164,30 +206,15 @@ def get_vararg(stream: IOBase) -> list[int | str]:
 
     return result
 
-def var_name(var_id: int, extra: int | None=None) -> str:
-    if var_id in range(len(var_names4)):
-        res = var_names4[var_id]
-        if res:
-            return res
 
-    if var_id & 0x8000:
-        return f"VAR[{(var_id & 0xff0) >> 4} bit {var_id & 0x00f}]"
-
-    base = "LOCAL" if var_id & 0x4000 else "VAR"
-
-    if var_id & 0x2000 and extra is not None:
-        return f"{base}[{var_id & 0xfff} + {var_name(extra)}]"
-
-    return f"{base}[{var_id & 0xfff}]"
-
-
-def get_var(stream: IOBase) -> str:
+def get_var(stream: IOBase) -> V4Var:
     var_id = get_unsigned_word(stream)
     extra = None
     if (var_id & 0x2000):
         extra = get_unsigned_word(stream)
 
-    return var_name(var_id, extra)
+    return V4Var(var_id, extra)
+
 
 def get_result_pos(stream: IOBase) -> int:
     var_id = get_signed_word(stream)
@@ -196,8 +223,9 @@ def get_result_pos(stream: IOBase) -> int:
         var_id += a & 0xfff
     return var_id
 
-def get_result_var(stream: IOBase) -> str|None:
-    return var_name(get_result_pos(stream))
+def get_result_var(stream: IOBase) -> V4Var|None:
+    return get_var(stream)
+#    return var_name(get_result_pos(stream))
 
 V4_ACTOROPS_REMAP  = [1, 0, 0, 2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,20]
 
@@ -262,7 +290,7 @@ def parse_actorops(stream: IOBase) -> list[tuple[str, dict[str, Any]]]:
                 ops.append(("SO_TALK_COLOR", {"color": get_var(stream) if a1 else get_byte(stream)}))
 
             case 0x0d:
-                ops.append(("SO_ACTOR_NAME", {"name": get_text_string(stream)}))
+                ops.append(("SO_ACTOR_NAME", {"name": get_text_tokens(stream)}))
 
             case 0x0e:
                 ops.append(("SO_INIT_ANIMATION", {"init_frame": get_var(stream) if a1 else get_byte(stream)}))
@@ -299,7 +327,7 @@ def parse_actorops(stream: IOBase) -> list[tuple[str, dict[str, Any]]]:
     return ops
 
 def parse_stringops(stream: IOBase):
-    opcode = get_byte(stream) 
+    opcode= get_byte(stream) 
     a1 = True if opcode & 0x80 else False 
     a2 = True if opcode & 0x40 else False 
     a3 = True if opcode & 0x20 else False 
@@ -310,7 +338,7 @@ def parse_stringops(stream: IOBase):
         case 1:
             func = "loadstring"
             index = get_var(stream) if a1 else get_byte(stream)
-            string = get_text_string(stream)
+            string = get_text_tokens(stream)
             args = {"index": index, "string": string}
         case 2:
             func = "copystring"
@@ -571,6 +599,142 @@ def parse_saverestoreverbs(stream: IOBase) -> tuple[str | None, dict[str, Any]]:
     return None, args
 
 
+def get_text_tokens(stream: IOBase) -> list[V4TextToken]:
+    orig = stream.tell()
+    result : list[V4TextToken] = []
+    test = get_byte(stream)
+    text_buffer = bytearray()
+    while test != 0:
+        if test == 0xff or test == 0xfe:
+            test = get_byte(stream)
+
+            if text_buffer:
+                result.append(V4TextToken("text", bytes(text_buffer)))
+                text_buffer = bytearray()
+
+            match test:
+                case 1:
+                    result.append(V4TextToken("newline"))
+                case 2:
+                    result.append(V4TextToken("keepText"))
+                case 3:
+                    result.append(V4TextToken("wait"))
+                case 4:
+                    var = get_var(stream)
+                    result.append(V4TextToken("getInt", var))
+                case 5:
+                    var = get_var(stream)
+                    result.append(V4TextToken("getVerb", var))
+                case 6:
+                    var = get_var(stream)
+                    result.append(V4TextToken("getName", var))
+                case 7:
+                    var = get_var(stream)
+                    result.append(V4TextToken("getString", var))
+                case 9:
+                    anim = get_signed_word(stream)
+                    result.append(V4TextToken("startAnim", anim))
+                case 12:
+                    color = get_signed_word(stream)
+                    result.append(V4TextToken("setColor", color))
+                case 14:
+                    font = get_signed_word(stream)
+                    result.append(V4TextToken("setFont", font))
+
+        else:
+            text_buffer.append(test)
+        test = get_byte(stream)
+
+    if text_buffer:
+        result.append(V4TextToken("text", bytes(text_buffer)))
+        text_buffer = bytearray()
+
+    return result
+
+
+def sostring_to_bytes(ops: list[tuple[str, Any]]) -> bytes:
+    result = bytearray()
+    for op, data in ops:
+        match op:
+            case "SO_AT":
+                a1 = isinstance(data["xpos"], V4Var)
+                a2 = isinstance(data["ypos"], V4Var)
+                opcode = 0x00 | (0x80 if a1 else 0x00) | (0x40 if a2 else 0x00)
+                result.append(opcode)
+                result.extend(data["xpos"].raw() if a1 else utils.to_int16_le(data["xpos"]))
+                result.extend(data["ypos"].raw() if a2 else utils.to_int16_le(data["ypos"]))
+            case "SO_COLOR":
+                a1 = isinstance(data["color"], V4Var)
+                opcode = 0x01 | (0x80 if a1 else 0x00)
+                result.append(opcode)
+                result.extend(data["color"].raw() if a1 else utils.to_uint8(data["color"]))
+            case "SO_CLIPPED":
+                a1 = isinstance(data["right"], V4Var)
+                opcode = 0x02 | (0x80 if a1 else 0x00)
+                result.append(opcode)
+                result.extend(data["right"].raw() if a1 else utils.to_uint8(data["right"]))
+            case "SO_ERASE":
+                a1 = isinstance(data["width"], V4Var)
+                a2 = isinstance(data["height"], V4Var)
+                opcode = 0x03 | (0x80 if a1 else 0x00) | (0x40 if a2 else 0x00)
+                result.append(opcode)
+                result.extend(data["width"].raw() if a1 else utils.to_int16_le(data["width"]))
+                result.extend(data["height"].raw() if a2 else utils.to_int16_le(data["height"]))
+            case "SO_CENTER":
+                opcode = 0x04
+                result.append(opcode)
+            case "SO_LEFT":
+                opcode = 0x06
+                result.append(opcode)
+            case "SO_OVERHEAD":
+                opcode = 0x07
+                result.append(opcode)
+            case "SO_SAY_VOICE":
+                a1 = isinstance(data["offset"], V4Var)
+                a2 = isinstance(data["delay"], V4Var)
+                opcode = 0x08 | (0x80 if a1 else 0x00) | (0x40 if a2 else 0x00)
+                result.append(opcode)
+                result.extend(data["offset"].raw() if a1 else utils.to_int16_le(data["offset"]))
+                result.extend(data["delay"].raw() if a2 else utils.to_int16_le(data["delay"]))
+            case "SO_TEXTSTRING":
+                result.append(0x0f)
+                result.extend(text_tokens_to_bytes(data["str"]))
+                return bytes(result)
+    result.append(0xff)
+
+    return bytes(result)
+
+
+def text_tokens_to_bytes(tokens: list[V4TextToken]) -> bytes:
+    result = bytearray()
+
+    for token in tokens:
+        match token.name:
+            case "text":
+                result.extend(token.data)
+            case "newline":
+                result.extend(b'\xff\x01')
+            case "keepText":
+                result.extend(b'\xff\x02')
+            case "wait":
+                result.extend(b'\xff\x03')
+            case "getInt":
+                result.extend(b'\xff\x04' + token.data.raw())
+            case "getVerb":
+                result.extend(b'\xff\x05' + token.data.raw())
+            case "getName":
+                result.extend(b'\xff\x06' + token.data.raw())
+            case "getString":
+                result.extend(b'\xff\x07' + token.data.raw())
+            case "startAnim":
+                result.extend(b'\xff\x09' + token.data.raw())
+            case "setColor":
+                result.extend(b'\xff\x0c' + utils.from_int16_le(token.data))
+            case "setFont":
+                result.extend(b'\xff\x0e' + utils.from_int16_le(token.data))
+    result.append(0x00)
+    return bytes(result)
+
 
 def get_text_string(stream: IOBase) -> bytes:
     orig = stream.tell()
@@ -617,7 +781,7 @@ def get_text_string(stream: IOBase) -> bytes:
     return bytes(result)
 
 
-def parse_string(stream: IOBase) -> list[tuple[str, dict[str, Any]]]:
+def parse_sostring(stream: IOBase) -> list[tuple[str, dict[str, Any]]]:
     opcode = get_byte(stream)
     ops: list[tuple[str, dict[str, Any]]] = []
     while opcode != 0xff:
@@ -659,7 +823,7 @@ def parse_string(stream: IOBase) -> list[tuple[str, dict[str, Any]]]:
                 ops.append(("SO_SAY_VOICE", {"offset": offset, "delay": delay}))
 
             case 0x0f:
-                ops.append(("SO_TEXTSTRING", {"str": get_text_string(stream)})) 
+                ops.append(("SO_TEXTSTRING", {"str": get_text_tokens(stream)})) 
                 return ops
             case _:
                 ops.append(("SO_UNK", {}))
@@ -668,7 +832,7 @@ def parse_string(stream: IOBase) -> list[tuple[str, dict[str, Any]]]:
     return ops
 
 def parse_verbops(stream: IOBase):
-    ops: list[tuple[str, dict[str, str|int|bytes]]] = []
+    ops: list[tuple[str, dict[str, V4Var|int|bytes]]] = []
     opcode = get_byte(stream)
     a1 = True if opcode & 0x80 else False
     a2 = True if opcode & 0x40 else False
@@ -681,7 +845,7 @@ def parse_verbops(stream: IOBase):
                 ops.append((op, {"obj": a}))
             case 2:
                 op = "SO_VERB_NAME"
-                text = get_text_string(stream)
+                text = get_text_tokens(stream)
                 ops.append((op, {"text": text}))
             case 3:
                 op = "SO_VERB_COLOR"
@@ -799,6 +963,141 @@ def parse_expression(stream: IOBase) -> str:
         print(f"WARNING: stack contains {stack}")
         return "BAD"
     return stack.pop()
+
+
+def v4_instr_to_bytes(instr: V4Instr) -> bytes:
+    match instr.name:
+        case "isGreaterEqual" | "isNotEqual" | "isLessEqual" | "isLess" | "isEqual" | "isGreater":
+            a = instr.args["a"]
+            b = instr.args["b"]
+            offset = instr.args["offset"]
+            a1 = isinstance(b, V4Var)
+            match instr.name:
+                case "isGreaterEqual":
+                    opcode = 0x04
+                case "isNotEqual":
+                    opcode = 0x08
+                case "isLessEqual":
+                    opcode = 0x38
+                case "isLess":
+                    opcode = 0x44
+                case "isEqual":
+                    opcode = 0x48
+                case "isGreater":
+                    opcode = 0x78
+
+            opcode = opcode | (0x80 if a1 else 0x00)
+            raw = bytes([opcode])
+            raw += a.raw()
+            raw += b.raw() if a1 else utils.to_int16_le(b)
+            raw += utils.to_int16_le(offset)
+            return raw
+
+        case "ifState" | "ifNotState":
+            obj = instr.args["obj"]
+            val = instr.args["val"]
+            offset = instr.args["offset"]
+            a1 = isinstance(obj, V4Var)
+            a2 = isinstance(val, V4Var)
+            opcode = 0x0f if instr.name == "ifState" else 0x2f
+            opcode = opcode | (0x80 if a1 else 0x00) | (0x40 if a2 else 0x00)
+            raw = bytes([opcode])
+            raw += obj.raw() if a1 else utils.to_int16_le(obj)
+            raw += val.raw() if a2 else utils.to_uint8(val)
+            raw += utils.to_int16_le(offset)
+            return raw
+            
+        case "jumpRelative":
+            offset = instr.args["offset"]
+            opcode = 0x18
+            raw = bytes([opcode])
+            raw += utils.to_int16_le(offset)
+            return raw
+
+        case "ifClassOfIs":
+            obj = instr.args["obj"]
+            classes = instr.args["classes"]
+            offset = instr.args["offset"]
+            a1 = isinstance(obj, V4Var)
+            opcode = 0x1f | (0x80 if a1 else 0x00)
+            raw = bytes([opcode])
+            raw += obj.raw() if a1 else utils.to_int16_le(obj)
+            for klass in classes:
+                a1 = isinstance(klass, V4Var)
+                raw += b'\x80' if a1 else b'\x00'
+                raw += klass.raw() if a1 else utils.to_int16_le(klass)
+            raw += b'\xff'
+            raw += utils.to_int16_le(offset)
+            return raw
+
+        case "isActorInBox":
+            act = instr.args["act"]
+            box = instr.args["box"]
+            offset = instr.args["offset"]
+            a1 = isinstance(act, V4Var)
+            a2 = isinstance(box, V4Var)
+            opcode = 0x1f | (0x80 if a1 else 0x00) | (0x40 if a2 else 0x00)
+            raw = bytes([opcode])
+            raw += act.raw() if a1 else utils.to_uint8(act)
+            raw += box.raw() if a2 else utils.to_uint8(box)
+            raw += utils.to_int16_le(offset)
+            return raw 
+
+        case "equalZero" | "notEqualZero":
+            a = instr.args["a"]
+            offset = instr.args["offset"]
+            
+            opcode = 0x28 if instr.name == "equalZero" else 0xa8
+            raw = bytes([opcode])
+            raw += a.raw()
+            raw += utils.to_int16_le(offset)
+            return raw
+
+        case "loadRoomWithEgo":
+            obj = instr.args["obj"]
+            room = instr.args["room"]
+            x = instr.args["x"]
+            y = instr.args["y"]
+            a1 = isinstance(obj, V4Var)
+            a2 = isinstance(room, V4Var)
+            opcode = 0x24 | (0x80 if a1 else 0x00) | (0x40 if a2 else 0x00)
+            raw = bytes([opcode])
+            raw += obj.raw() if a1 else utils.to_int16_le(obj)
+            raw += room.raw() if a2 else utils.to_int16_le(room)
+            raw += utils.to_int16_le(x)
+            raw += utils.to_int16_le(y)
+            return raw
+        case "printEgo":
+            opcode = 0xd8
+            raw = bytes([opcode])
+            raw += sostring_to_bytes(instr.args['string'])
+            return raw 
+        case _:
+            return instr.raw
+
+
+def instr_list_to_bytes(instrs: list[tuple[int, V4Instr]]) -> bytes:
+    result = bytearray()
+
+    # - create new offsets list based on code size
+    pos = instrs[0][0]
+    new_bases = []
+    for off, instr in instrs:
+        new_bases.append(pos)
+        pos += len(v4_instr_to_bytes(instr))
+    for i, (off, instr) in enumerate(instrs):
+        if "offset" in instr.args:
+            target = off + len(v4_instr_to_bytes(instr)) + instr.args["offset"] 
+            target_idx = [x for x, _ in instrs].index(target)
+
+            offset_old = instr.args["offset"]
+            instr.args["offset"] = new_bases[target_idx] - len(instr.raw) - new_bases[i]
+            result.extend(v4_instr_to_bytes(instr))
+            instr.args["offset"] = offset_old
+        else:
+            result.extend(v4_instr_to_bytes(instr))
+            
+    return bytes(result) 
 
 
 # ported from scummvm/engines/scumm/script_v5.cpp
@@ -961,7 +1260,7 @@ def get_v4_instr(stream: IOBase) -> V4Instr | None:
         case 0x14 | 0x94:
             result.name = "print"
             act = get_var(stream) if a1 else get_byte(stream)
-            ops = parse_string(stream)
+            ops = parse_sostring(stream)
             result.args = {"act": act, "ops": ops}
 
         case 0x15 | 0x55 | 0x95 | 0xd5:
@@ -1017,7 +1316,7 @@ def get_v4_instr(stream: IOBase) -> V4Instr | None:
             result.args = {"sound": sound}
 
         case 0x1d | 0x9d:
-            result.name = "ifclassOfIs"
+            result.name = "ifClassOfIs"
             obj = get_var(stream) if a1 else get_signed_word(stream)
             classes = []
             test = get_byte(stream)
@@ -1131,10 +1430,10 @@ def get_v4_instr(stream: IOBase) -> V4Instr | None:
 
         case 0x2f | 0x6f | 0xaf | 0xef:
             result.name = "ifNotState"
-            a = get_var(stream) if a1 else get_signed_word(stream)
-            b = get_var(stream) if a1 else get_signed_word(stream)
+            obj = get_var(stream) if a1 else get_signed_word(stream)
+            val = get_var(stream) if a2 else get_byte(stream)
             offset = get_signed_word(stream)
-            result.args = {"a": a, "b": b, "offset": offset}
+            result.args = {"obj": obj, "val": val, "offset": offset}
 
         case 0x30 | 0xb0:
             result.name = "matrixOps"
@@ -1277,7 +1576,7 @@ def get_v4_instr(stream: IOBase) -> V4Instr | None:
         case 0x54 | 0xd4:
             result.name = "setObjectName"
             obj = get_var(stream) if a1 else get_signed_word(stream)
-            name = get_text_string(stream)
+            name = get_text_tokens(stream)
             result.args = {"obj": obj, "name": name}
 
         case 0x56 | 0xd6:
@@ -1449,7 +1748,7 @@ def get_v4_instr(stream: IOBase) -> V4Instr | None:
  
         case 0xd8:
             result.name = "printEgo"
-            string = parse_string(stream)
+            string = parse_sostring(stream)
             result.args = {"string": string}
 
         case _:
@@ -1484,158 +1783,4 @@ def scumm_v4_tokenizer(data: bytes, offset: int=0, print_offset: int=0, dump_all
     return result
 
 
-class SC(mrc.Block):
-    data = mrc.Bytes()
-    
-    def get_instr(self):
-        return scumm_v4_tokenizer(self.data)
 
-class LS(mrc.Block):
-    id = mrc.UInt8()
-    data = mrc.Bytes()
-
-    def get_instr(self):
-        return scumm_v4_tokenizer(self.data)
-
-class ObjectEvent(mrc.Block):
-    verb_id = mrc.UInt8()
-    code_offset = mrc.UInt16_LE()
-
-class OC(mrc.Block):
-    id = mrc.Int16_LE(0x00)
-    unk = mrc.UInt8(0x02)
-    x_pos = mrc.UInt8(0x03)
-    y_pos = mrc.Bits(0x04, 0b01111111)
-    parent_state = mrc.Bits(0x04, 0b10000000)
-    width = mrc.UInt8(0x05)
-    parent = mrc.UInt8(0x06)
-    walk_x = mrc.Int16_LE(0x07)
-    walk_y = mrc.Int16_LE(0x09)
-    height = mrc.Bits(0x0b, 0b01111111)
-    actor_dir = mrc.Bits(0x0b, 0b10000000)
-
-    @property
-    def name_offset(self):
-        return self.get_field_end_offset("events") - 0x06
-    
-
-    name_raw_offset = mrc.Pointer( mrc.UInt8( 0x0c ), mrc.Ref("name_offset") )
-    events = mrc.BlockField(ObjectEvent, 0x0d, stream=True, stream_end=b'\x00')
-    name = mrc.CString(encoding='cp437')
-    data = mrc.Bytes()
-    
-    def get_instr(self):
-        return scumm_v4_tokenizer(self.data)
-
-class RO(mrc.Block):
-    chunks = mrc.ChunkField({b'LS': LS, b'OC': OC}, id_size=2, length_field=mrc.UInt32_LE, default_klass=mrc.Unknown, length_before_id=True, length_inclusive=True)
-
-class LF(mrc.Block):
-    id = mrc.UInt16_LE()
-    chunks = mrc.ChunkField({b'RO': RO, b'SC': SC}, id_size=2, length_field=mrc.UInt32_LE, default_klass=mrc.Unknown, length_before_id=True, length_inclusive=True)
-
-class LE(mrc.Block):
-    chunks = mrc.ChunkField({b'LF': LF}, id_size=2, length_field=mrc.UInt32_LE, default_klass=mrc.Unknown, length_before_id=True, length_inclusive=True)
-
-
-class LEC(mrc.Block):
-    chunks = mrc.ChunkField({b'LE': LE}, id_size=2, length_field=mrc.UInt32_LE, default_klass=mrc.Unknown, length_before_id=True, length_inclusive=True)
-
-
-class XORBytes(mrc.Transform):
-    def __init__(self, secret, *args, **kwargs):
-        self.secret = secret
-        super().__init__(*args, **kwargs)
-
-    def import_data(self, buffer: BytesReadType, parent: mrc.Block | None = None
-    ) -> TransformResult:
-        return TransformResult(payload=bytes([x ^ self.secret for x in buffer]), end_offset=len(buffer))
-    
-    def export_data(self, buffer: BytesReadType, parent: mrc.Block | None = None
-    ) -> TransformResult:
-        return TransformResult(payload=bytes([x ^ self.secret for x in buffer]), end_offset=len(buffer))
-
-class RNEntry(mrc.Block):
-    id = mrc.UInt8()
-    name = mrc.Bytes(length=9, transform=XORBytes(0xff))
-
-class RN(mrc.Block):
-    entries = mrc.BlockField(RNEntry, stream=True)
-
-
-class GlobalIndexItem(mrc.Block):
-    room_id = mrc.UInt8()
-    offset = mrc.UInt32_LE()
-
-class GlobalIndex(mrc.Block):
-    num_items = mrc.UInt16_LE()
-    items = mrc.BlockField(GlobalIndexItem, count=mrc.Ref('num_items'))
-
-
-class LFL(mrc.Block):
-    chunks = mrc.ChunkField({b'RN': RN, b'0S': GlobalIndex, b'0N': GlobalIndex, b'0C': GlobalIndex}, id_size=2, length_field=mrc.UInt32_LE, default_klass=mrc.Unknown, length_before_id=True, length_inclusive=True)
-
-
-
-DISKS = {}
-for arch in ["DISK01.LEC", "DISK02.LEC", "DISK03.LEC", "DISK04.LEC"]:
-    f = bytes(x^0x69 for x in open(arch, "rb").read())
-    DISKS[arch] = LEC(f)
-
-lfl = LFL(open("000.LFL", "rb").read())
-ROOM_NAMES: dict[int, str] = {
-    entry.id: entry.name.strip(b'\x00').decode('utf8')
-    for entry in lfl.chunks[0].obj.entries
-}
-
-GLOBAL_SCRIPT_MAP: dict[tuple[int, int], int] = {
-    (gi.room_id, gi.offset + 2): i for i, gi in enumerate(lfl.chunks[2].obj.items)
-}
-
-
-def dump_all(print_data: bool=False):
-    results = {}
-    for key, disk in DISKS.items():
-        if print_data:
-            print(f"- {key}")
-        for le in disk.chunks:
-            if le.id != b'LE':
-                continue
-            for lf in le.obj.chunks:
-                if lf.id != b'LF':
-                    continue
-                results[lf.obj.id] = {"name": ROOM_NAMES.get(lf.obj.id), "globals": {}, "objects": {}, "locals": {}}
-                if print_data:
-                    print(f"  - room {lf.obj.id} ({ROOM_NAMES.get(lf.obj.id)})")
-                for i, ro in enumerate(lf.obj.chunks):
-                    if ro.id == b'SC':
-                        global_id = GLOBAL_SCRIPT_MAP.get((lf.obj.id, lf.obj.get_field_start_offset('chunks', i)))
-                        if print_data:
-                            print(f"    - global script {global_id} ({len(ro.obj.data)} bytes)")
-                        results[lf.obj.id]["globals"][global_id] = scumm_v4_tokenizer(ro.obj.data, 0, dump_all=True, print_data=print_data, print_prefix="    ")
-                        continue
-                    elif ro.id != b'RO':
-                        continue
-                    for o in ro.obj.chunks:
-                        if o.id == b'OC':
-                            if print_data:
-                                print(f"    - object script {o.obj.id} ({o.obj.name}) ({len(o.obj.events)} events, {len(o.obj.data)} bytes)")
-                            results[lf.obj.id]["objects"][o.obj.id] = {"name": o.obj.name, "verbs": {}}
-                            for ev in o.obj.events:
-                                verb_name = verbs4.get(ev.verb_id)
-                                if print_data:
-                                    print(f"        - verb {ev.verb_id} ({verb_name})")
-                                start_offset =o .obj.get_field_start_offset("data")+6 
-                                results[lf.obj.id]["objects"][o.obj.id]["verbs"][ev.verb_id] = scumm_v4_tokenizer(o.obj.data, ev.code_offset - start_offset, dump_all=False, print_offset=start_offset, print_data=print_data, print_prefix="        ")
-                        elif o.id == b'LS':
-                            if print_data:
-                                print(f"    - local script {o.obj.id} ({len(o.obj.data)} bytes)")
-                            
-                            results[lf.obj.id]["locals"][o.obj.id] = scumm_v4_tokenizer(o.obj.data, 0, dump_all=True, print_data=print_data, print_prefix="    ")
-    return results
-
-
-
-#payload = DISKS["DISK03.LEC"].chunks[0].obj.chunks[12].obj.chunks[0].obj.chunks[-4].obj.data
-#for off, instr in scumm_v4_tokenizer(payload):
-#    print(f"[{off:04x}] {str(instr)}")
