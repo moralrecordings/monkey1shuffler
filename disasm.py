@@ -651,6 +651,155 @@ def get_text_tokens(stream: IOBase) -> list[V4TextToken]:
 
     return result
 
+def stringops_to_bytes(op, args, target):
+    result = b""
+    match op:
+        case "loadstring":
+            index = args['index']
+            a1 = isinstance(index, V4Var)
+            opcode = 0x01 | (0x80 if a1 else 0x00)
+            result += bytes([opcode])
+            result += index.raw() if a1 else utils.to_uint8(index)
+            result += text_tokens_to_bytes(args['string'])
+
+        case "copystring":
+            a = args['a']
+            b = args['b']
+            a1 = isinstance(a, V4Var)
+            a2 = isinstance(b, V4Var)
+            opcode = 0x02 | (0x80 if a1 else 0x00) | (0x40 if a2 else 0x00)
+            result += bytes([opcode])
+            result += a.raw() if a1 else utils.to_uint8(a)
+            result += b.raw() if a2 else utils.to_uint8(b)
+
+        case "setstringchar":
+            a = args['a']
+            b = args['b']
+            c = args['c']
+            a1 = isinstance(a, V4Var)
+            a2 = isinstance(b, V4Var)
+            a3 = isinstance(c, V4Var)
+            opcode = 0x03 | (0x80 if a1 else 0x00) | (0x40 if a2 else 0x00) | (0x20 if a3 else 0x00)
+            result += bytes([opcode])
+            result += a.raw() if a1 else utils.to_uint8(a)
+            result += b.raw() if a2 else utils.to_uint8(b)
+            result += c.raw() if a3 else utils.to_uint8(c)
+
+        case "getstringchar":
+            a = args['a']
+            b = args['b']
+            a1 = isinstance(a, V4Var)
+            a2 = isinstance(b, V4Var)
+            opcode = 0x04 | (0x80 if a1 else 0x00) | (0x40 if a2 else 0x00)
+            result += bytes([opcode])
+            result += target.raw()
+            result += a.raw() if a1 else utils.to_uint8(a)
+            result += b.raw() if a2 else utils.to_uint8(b)
+
+        case "createemptystring":
+            a = args['a']
+            b = args['b']
+            a1 = isinstance(a, V4Var)
+            a2 = isinstance(b, V4Var)
+            opcode = 0x05 | (0x80 if a1 else 0x00) | (0x40 if a2 else 0x00)
+            result += bytes([opcode])
+            result += a.raw() if a1 else utils.to_uint8(a)
+            result += b.raw() if a2 else utils.to_uint8(b)
+
+    return result
+
+
+def verbops_to_bytes(ops: list[tuple[str, Any]]) -> bytes:
+    result = b""
+    for op, args in ops:
+        match op:
+            case "SO_VERB_IMAGE":
+                obj = args['obj']
+                a1 = isinstance(obj, V4Var)
+                opcode = 0x01 | (0x80 if a1 else 0x00)
+                result += bytes([opcode])
+                result += obj.raw() if a1 else utils.to_int16_le(obj)
+            case "SO_VERB_NAME":
+                opcode = 0x02
+                result += bytes([opcode])
+                result += text_tokens_to_bytes(args['text'])
+            case "SO_VERB_COLOR":
+                color = args['color']
+                a1 = isinstance(color, V4Var)
+                opcode = 0x03
+                result += bytes([opcode])
+                result += color.raw() if a1 else utils.to_uint8(color)
+            case "SO_VERB_HICOLOR":
+                color = args['color']
+                a1 = isinstance(color, V4Var)
+                opcode = 0x04
+                result += bytes([opcode])
+                result += color.raw() if a1 else utils.to_uint8(color)
+            case "SO_VERB_AT":
+                x = args['x']
+                y = args['y']
+                a1 = isinstance(x, V4Var)
+                a2 = isinstance(y, V4Var)
+                opcode = 0x05 | (0x80 if a1 else 0x00) | (0x40 if a2 else 0x00)
+                result += bytes([opcode])
+                result += x.raw() if a1 else utils.to_int16_le(x)
+                result += y.raw() if a2 else utils.to_int16_le(y)
+            case "SO_VERB_ON":
+                opcode = 0x06
+                result += bytes([opcode])
+            case "SO_VERB_OFF":
+                opcode = 0x07
+                result += bytes([opcode])
+            case "SO_VERB_DELETE":
+                opcode = 0x08
+                result += bytes([opcode])
+            case "SO_VERB_NEW":
+                opcode = 0x09
+                result += bytes([opcode])
+            case "SO_VERB_DIMCOLOR":
+                color = args['color']
+                a1 = isinstance(color, V4Var)
+                opcode = 0x10 | (0x80 if a1 else 0x00)
+                result += bytes([opcode])
+                result += color.raw() if a1 else utils.to_int16_le(color)
+            case "SO_VERB_DIM":
+                opcode = 0x11
+                result += bytes([opcode])
+            case "SO_VERB_KEY":
+                key = args['key']
+                a1 = isinstance(key, V4Var)
+                opcode = 0x12 | (0x80 if a1 else 0x00)
+                result += bytes([opcode])
+                result += key.raw() if a1 else utils.to_int16_le(key)
+            case "SO_VERB_CENTER":
+                opcode = 0x13
+                result += bytes([opcode])
+            case "SO_VERB_NAME_STR":
+                idx = args['idx']
+                a1 = isinstance(idx, V4Var)
+                opcode = 0x14 | (0x80 if a1 else 0x00)
+                result += bytes([opcode])
+                result += idx.raw() if a1 else utils.to_int16_le(idx)
+            case "SO_VERB_ASSIGN_OBJECT":
+                obj = args['obj']
+                room = args['room']
+                a1 = isinstance(obj, V4Var)
+                a2 = isinstance(room, V4Var)
+                opcode = 0x16 | (0x80 if a1 else 0x00)
+                result += bytes([opcode])
+                result += obj.raw() if a1 else utils.to_int16_le(obj)
+                result += room.raw() if a2 else utils.to_int16_le(room)
+
+            case "SO_VERB_BACKCOLOR":
+                color = args['color']
+                a1 = isinstance(color, V4Var)
+                opcode = 0x17 | (0x80 if a1 else 0x00)
+                result += bytes([opcode])
+                result += color.raw() if a1 else utils.to_int16_le(color)
+
+    result += b'\xff'
+    return result
+
 
 def sostring_to_bytes(ops: list[tuple[str, Any]]) -> bytes:
     result = bytearray()
@@ -858,7 +1007,7 @@ def parse_verbops(stream: IOBase):
             case 5:
                 op = "SO_VERB_AT"
                 x = get_var(stream) if a1 else get_signed_word(stream)
-                y = get_var(stream) if a1 else get_signed_word(stream)
+                y = get_var(stream) if a2 else get_signed_word(stream)
                 ops.append((op, {"x": x, "y": y}))
             case 6:
                 op = "SO_VERB_ON"
@@ -1006,12 +1155,32 @@ def v4_instr_to_bytes(instr: V4Instr) -> bytes:
             raw += val.raw() if a2 else utils.to_uint8(val)
             raw += utils.to_int16_le(offset)
             return raw
-            
+           
+        case "print":
+            act = instr.args['act']
+            a1 = isinstance(act, V4Var)
+            opcode = 0x14 | (0x80 if a1 else 0x00)
+            raw = bytes([opcode])
+            raw += act.raw() if a1 else utils.to_uint8(act)
+            raw += sostring_to_bytes(instr.args['ops'])
+            return raw 
+
         case "jumpRelative":
             offset = instr.args["offset"]
             opcode = 0x18
             raw = bytes([opcode])
             raw += utils.to_int16_le(offset)
+            return raw
+
+        case "move":
+            target = instr.target
+            assert target is not None
+            value = instr.args['value']
+            a1 = isinstance(value, V4Var)
+            opcode = 0x1a | (0x80 if a1 else 0x00)
+            raw = bytes([opcode])
+            raw += target.raw()
+            raw += value.raw() if a1 else utils.to_int16_le(value)
             return raw
 
         case "ifClassOfIs":
@@ -1043,6 +1212,12 @@ def v4_instr_to_bytes(instr: V4Instr) -> bytes:
             raw += utils.to_int16_le(offset)
             return raw 
 
+        case "stringOps":
+            opcode = 0x27
+            raw = bytes([opcode])
+            raw += stringops_to_bytes(instr.args['op'], instr.args['args'], instr.target)
+            return raw
+
         case "equalZero" | "notEqualZero":
             a = instr.args["a"]
             offset = instr.args["offset"]
@@ -1067,6 +1242,16 @@ def v4_instr_to_bytes(instr: V4Instr) -> bytes:
             raw += utils.to_int16_le(x)
             raw += utils.to_int16_le(y)
             return raw
+       
+        case "verbOps":
+            verb = instr.args['verb']
+            a1 = isinstance(verb, V4Var)
+            opcode = 0x7a | (0x80 if a1 else 0x00)
+            raw = bytes([opcode])
+            raw += verb.raw() if a1 else utils.to_uint8(verb)
+            raw += verbops_to_bytes(instr.args['ops'])
+            return raw
+
         case "printEgo":
             opcode = 0xd8
             raw = bytes([opcode])
@@ -1732,8 +1917,6 @@ def get_v4_instr(stream: IOBase) -> V4Instr | None:
             result.name = "decrement"
             result.target = get_result_var(stream)
             result.repr = lambda x: f"{x.target} -= 1"
-     
-
 
         case 0xcc:
             result.name = "pseudoRoom"
@@ -1745,7 +1928,6 @@ def get_v4_instr(stream: IOBase) -> V4Instr | None:
                 src_in = get_byte(stream)
             result.args = {"val": val, "sources": sources}
 
- 
         case 0xd8:
             result.name = "printEgo"
             string = parse_sostring(stream)
