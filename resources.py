@@ -144,7 +144,7 @@ for arch in ["DISK01.LEC", "DISK02.LEC", "DISK03.LEC", "DISK04.LEC"]:
 
 lfl = LFL(open("000.LFL", "rb").read())
 ROOM_NAMES: dict[int, str] = {
-    entry.id: entry.name.strip(b'\x00').decode('utf8')
+    entry.id: entry.name.strip(b'\x00').decode('cp437')
     for entry in lfl.chunks[0].obj.entries
 }
 
@@ -167,7 +167,7 @@ class IGlobalData(TypedDict):
     script: list[IDisassembly]
 
 class IObjectData(TypedDict):
-    name: str
+    name: str 
     index: tuple[int, int]
     verbs: dict[int, list[IDisassembly]]
 
@@ -279,101 +279,57 @@ def update_global_model(scripts: IGameData, room_id: int, script_id: int):
     global_model.data = instr_list_to_bytes(src["script"])
 
 
+def get_object_model(scripts: IGameData, room_id: int, object_id: int):
+    src = scripts[room_id]['objects'][object_id]
+    room_model = get_room_model(scripts, room_id)
+    return room_model.chunks[src["index"][0]].obj.chunks[src["index"][1]].obj
 
-def test_mod_intro(scripts: IGameData):
 
-    replace = V4Instr(0xd8, "printEgo", args={"string": [('SO_TEXTSTRING', {'str': [V4TextToken(name="text", data=b"I have bad news^"), V4TextToken(name="wait"), V4TextToken(name="text", data=b"^the recompiler sort of works??")]})]})
-    vx = scripts[38]['locals'][203]['script']
-    vx[17] = (vx[17][0], replace)
+def update_object_model(scripts: IGameData, room_id: int, object_id: int):
+    src = scripts[room_id]['objects'][object_id]
+    object_model: OC = get_object_model(scripts, room_id, object_id)
+    object_model.name = src['name']
+    object_model.events = []
+    object_model.data = b''
+    for verb in src['verbs'].keys():
+        object_model.events.append(ObjectEvent())
+        object_model.events[-1].verb_id = verb
+    start_offset = object_model.get_field_start_offset("data")+6
+    for i, (verb_id, code) in enumerate(src['verbs'].items()):
+        code_data = instr_list_to_bytes(code)
+        object_model.events[i].code_offset = len(object_model.data) + start_offset
+        object_model.data += code_data 
 
-    #local = get_local_model(scripts, 38, 203)
-    #print("\nBefore:")
-    #scumm_v4_tokenizer(local.data, print_data=True)
-    update_local_model(scripts, 38, 203)
 
-    #print("\nAfter:")
-    #scumm_v4_tokenizer(local.data, print_data=True)
-    
+                   
 
-def test_mod_dock_poster():
-    replace = V4Instr(0xd8, "printEgo", args={"string": [('SO_TEXTSTRING', {'str': [V4TextToken(name="text", data=b"It says 'Your shonky recompiler works perfectly'^"), V4TextToken(name="wait"), V4TextToken(name="text", data=b"^but that can't be right?")]})]})
-    vx = list(ax[33]['objects'][438]['verbs'][9])
-    vx[-5] = (vx[-5][0], replace)
-    
 
-def turbo_mode(content: IGameData, timer_interval: int=2):
-    # scrub through every script and replace the VAR_TIMER_NEXT set statements
+def find_pick_up_object(instr_list: list[tuple[int, V4Instr]]):
+    result = []
+    for off, x in instr_list:
+        if x.name == "pickupObject":
+            result.append({"offset": off, "obj": x.args["obj"]})
+    return result
 
-    def mod_script(script: list[IDisassembly]) -> bool:
-        modded = False
-        for _, instr in script:
-            if instr.name == "move" and isinstance(instr.target, V4Var) and instr.target.id == 19 and isinstance(instr.args['value'], int):
-                instr.args['value'] = timer_interval
-                modded = True
-        return modded
+
+
+def shuffle_objects(content: IGameData):
+    # there's pickupObject, which removes the item from the scene and changes ownership
+    # we would need to change this to setOwner?
 
     for room_id, room in content.items():
+        print(f'room {room_id} ({room["name"]})')
         for global_id, glob in room['globals'].items():
-            if mod_script(glob['script']):
-                update_global_model(content, room_id, global_id)
-
+            for res in find_pick_up_object(glob['script']):
+                print(f"- global {global_id} - [{res['offset']:04x}] {res['obj']}")
         for local_id, local in room['locals'].items():
-            if mod_script(local['script']):
-                update_local_model(content, room_id, local_id)
-                    
+            for res in find_pick_up_object(local['script']):
+                print(f"- local {local_id} - [{res['offset']:04x}] {res['obj']}")
+        for object_id, obj in room['objects'].items():
+            for verb_id, verb in obj['verbs'].items():
+                for res in find_pick_up_object(verb):
+                    print(f"- object {object_id} ({obj['name']}) verb {verb_id} - [{res['offset']:04x}] {res['obj']}")
 
-def non_sequitur_swordfighting(content: IGameData, shuffle_order: bool):
-    INSULT_COUNT = 16
-    INSULT_FARMER = 7
-    INSULT_SHISH = 1
-
-    fight_room = content[88]
-    jab_ids = [i for i in range(INSULT_COUNT)]
-    retort_ids = [i for i in range(INSULT_COUNT)]
-    if shuffle_order:
-        random.shuffle(jab_ids)
-    random.shuffle(retort_ids)
-
-    jab_script = fight_room['globals'][82]['script']
-    retort_script = fight_room['globals'][83]['script']
-    jabs = [jab_script[2+ 3*i][1].args['args']['string'][0].data for i in range(INSULT_COUNT)]
-    sm_jabs = [jab_script[50+ 3*i][1].args['args']['string'][0].data for i in range(INSULT_COUNT)]
-    retorts = [retort_script[2+ 3*i][1].args['args']['string'][0].data for i in range(INSULT_COUNT)]
-    for i, x in enumerate(jab_ids):
-        jab_script[2+3*i][1].args['args']['string'][0].data = jabs[x]
-        jab_script[50+3*i][1].args['args']['string'][0].data = sm_jabs[x]
-    for i, x in enumerate(retort_ids):
-        retort_script[2+ 3*i][1].args['args']['string'][0].data = retorts[x]
-    
-    update_global_model(content, 88, 82)
-    update_global_model(content, 88, 83)
-
-    convo_script = fight_room['globals'][79]['script']
-    convo_script[10][1].args['ops'][0][1]['str'][0].data = b'What an amateur non-sequitur!'
-    convo_script[19][1].args['ops'][0][1]['str'][0].data = b"I'm non-sequitured that you'd even try to use that non-sequitur on me!"
-    convo_script[25][1].args['args']['string'][0].data = b"That's not fair, you're using the Sword Master's non-sequiturs, I see."
-    update_global_model(content, 88, 79)
-
-
-    smirk_room = content[43]
-    training = smirk_room['globals'][57]
-    training['script'][513][1].args['ops'][0][1]['str'][0].data = b'^they know just when to throw their opponent with a non-sequitur^'
-    training['script'][517][1].args['ops'][0][1]['str'][0].data = b"Let's try a couple of non-sequiturs out, shall we?"
-    training['script'][521][1].args['ops'][0][1]['str'][0].data = b"^'" + jabs[jab_ids[INSULT_FARMER]] + b"'"
-    training['script'][543][1].args['ops'][1][1]['text'][0].data = retorts[jab_ids[INSULT_FARMER]]
-    training['script'][558][1].args['ops'][0][1]['str'][2].data = b"^'"+retorts[retort_ids[INSULT_FARMER]] +b"'"
-    training['script'][567][1].args['ops'][0][1]['str'][0].data = b"^'"+jabs[jab_ids[INSULT_SHISH]] +b"'"
-    training['script'][591][1].args['ops'][1][1]['text'][0].data = retorts[retort_ids[INSULT_FARMER]]
-    training['script'][612][1].args['ops'][0][1]['str'][2].data = b"That was the response from the last non-sequitur."
-    training['script'][619][1].args['ops'][0][1]['str'][2].data = b"^'" +jabs[jab_ids[INSULT_SHISH]] + b"'^"
-    training['script'][622][1].args['ops'][0][1]['str'][0].data = b"^'" +retorts[retort_ids[INSULT_SHISH]] + b"'"
-    training['script'][626][1].args['ops'][0][1]['str'][0].data = b"Now I suggest you go out there and learn some non-sequiturs."
-    update_global_model(content, 43, 57)
-
-    
-    print("\nAfter:")
-    model = get_global_model(content, 43, 57)
-    scumm_v4_tokenizer(model.data, print_data=True)
 
 
 ax = dump_all(True)

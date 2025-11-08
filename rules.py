@@ -67,3 +67,4 @@ M1EGA_ROOM_CLUSTER = {
 # - shuffle the regular insults and swordmaster insults (same pattern), shuffle the retorts.
 # - include the crap insults and the yield words? don't include "I give up"
 # - change the dialogue with smirk to swap out the shish-kabob and dairy farmer retorts
+# - change the references in the conversation with the troll
