@@ -1372,6 +1372,14 @@ def v4_instr_to_bytes(instr: V4Instr) -> bytes:
             raw += utils.to_int16_le(y)
             return raw
 
+        case "actorFollowCamera":
+            act = instr.args["act"]
+            a1 = isinstance(act, V4Var)
+            opcode = 0x52 | (0x80 if a1 else 0x00)
+            raw = bytes([opcode])
+            raw += act.raw() if a1 else utils.to_int16_le(act)
+            return raw
+
         case "verbOps":
             verb = instr.args["verb"]
             a1 = isinstance(verb, V4Var)

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import random
 
-from disasm import V4Instr, V4TextToken
+from disasm import V4Instr, V4TextToken, V4Var
 from resources import (
     IDisassembly,
     IGameData,

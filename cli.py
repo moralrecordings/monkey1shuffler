@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import pathlib
+import random
 
 VERSION = "0.1"
 
@@ -52,6 +53,11 @@ def main():
         help="Number to use for initializing the random number generator.",
     )
     parser.add_argument(
+        "--skip-code-wheel",
+        action="store_true",
+        help="Bypass the copy-protection code wheel screen.",
+    )
+    parser.add_argument(
         "--debug-mode",
         action="store_true",
         help="Enable the original debugging features.",
@@ -65,6 +71,21 @@ def main():
         "--version", "-V", action="version", version=f"%(prog)s {VERSION}"
     )
     args = parser.parse_args()
+
+    if args.SOURCE == args.DEST:
+        parser.exit(1, "Source and destination paths must be different\n")
+
+    use_random = (
+        args.shuffle_rooms
+        or args.shuffle_objects
+        or args.shuffle_forest
+        or args.non_sequitur_swordfighting
+    )
+    random_seed = args.random_seed
+    if not random_seed:
+        random_seed = random.randint(0, 2**32)
+    if use_random:
+        print(f"Using random seed {random_seed}")
 
 
 if __name__ == "__main__":

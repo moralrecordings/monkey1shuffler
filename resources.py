@@ -195,6 +195,19 @@ ROOM_NAMES: dict[int, str] = {
     for entry in lfl.chunks[0].obj.entries
 }
 
+OBJECT_NAMES: dict[int, str] = {
+    oc.obj.id: oc.obj.name
+    for disk in DISKS.values()
+    for le in disk.chunks
+    if le.id == b"LE"
+    for lf in le.obj.chunks
+    if lf.id == b"LF"
+    for ro in lf.obj.chunks
+    if ro.id == b"RO"
+    for oc in ro.obj.chunks
+    if oc.id == b"OC"
+}
+
 GLOBAL_SCRIPT_MAP: dict[tuple[int, int], int] = {
     (gi.room_id, gi.offset + 2): i for i, gi in enumerate(lfl.chunks[2].obj.items)
 }
