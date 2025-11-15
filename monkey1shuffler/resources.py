@@ -1,18 +1,16 @@
 from __future__ import annotations
 
-import random
-from typing import Dict, Tuple, TypedDict
+import pathlib
+from typing import Any, TypedDict
 
-from mrcrowbar import models as mrc
 from mrcrowbar import utils
+from mrcrowbar import models as mrc
 from mrcrowbar.common import BytesReadType
 from mrcrowbar.transforms import TransformResult
 
-from disasm import (
+from .disasm import (
     V4_VERBS,
     V4Instr,
-    V4TextToken,
-    V4Var,
     instr_list_to_bytes,
     scumm_v4_tokenizer,
 )
@@ -184,41 +182,42 @@ class LFL(mrc.Block):
     )
 
 
-DISKS = {}
-for arch in ["DISK01.LEC", "DISK02.LEC", "DISK03.LEC", "DISK04.LEC"]:
-    f = bytes(x ^ 0x69 for x in open(arch, "rb").read())
-    DISKS[arch] = LEC(f)
+def get_archives(path: pathlib.Path) -> dict[str, Any]:
+    result = {}
+    for arch in ["DISK01.LEC", "DISK02.LEC", "DISK03.LEC", "DISK04.LEC"]:
+        f = bytearray(x ^ 0x69 for x in open(path / arch, "rb").read())
 
-lfl = LFL(open("000.LFL", "rb").read())
-ROOM_NAMES: dict[int, str] = {
-    entry.id: entry.name.strip(b"\x00").decode("cp437")
-    for entry in lfl.chunks[0].obj.entries
-}
+        # for some reason, DISK01.LEC has an invalid chunk size for the sound block in room 10.
+        # fix it manually before loading.
+        if arch == "DISK01.LEC":
+            bodge = utils.find( b"\x15\x82\x00\x00SO--", f)
+            if bodge:
+                f[bodge[0][0]:bodge[0][0]+4] = utils.to_uint32_le(0x8115)
+        f = bytes(f)
+        result[arch] = LEC(f)
+    result["000.LFL"] = LFL(open("000.LFL", "rb").read())
+    return result
 
-OBJECT_NAMES: dict[int, str] = {
-    oc.obj.id: oc.obj.name
-    for disk in DISKS.values()
-    for le in disk.chunks
-    if le.id == b"LE"
-    for lf in le.obj.chunks
-    if lf.id == b"LF"
-    for ro in lf.obj.chunks
-    if ro.id == b"RO"
-    for oc in ro.obj.chunks
-    if oc.id == b"OC"
-}
 
-GLOBAL_SCRIPT_MAP: dict[tuple[int, int], int] = {
-    (gi.room_id, gi.offset + 2): i for i, gi in enumerate(lfl.chunks[2].obj.items)
-}
+def get_room_names(archives: dict[str, Any]) -> dict[int, str]:
+    return {
+        entry.id: entry.name.strip(b"\x00").decode("cp437")
+        for entry in archives["000.LFL"].chunks[0].obj.entries
+    }
 
-GLOBAL_SOUND_MAP: dict[tuple[int, int], int] = {
-    (gi.room_id, gi.offset + 2): i for i, gi in enumerate(lfl.chunks[3].obj.items)
-}
-
-GLOBAL_COSTUME_MAP: dict[tuple[int, int], int] = {
-    (gi.room_id, gi.offset + 2): i for i, gi in enumerate(lfl.chunks[4].obj.items)
-}
+def get_object_names(archives: dict[str, Any]) -> dict[int, str]:
+    return {
+        oc.obj.id: oc.obj.name
+        for disk in archives.values()
+        for le in disk.chunks
+        if le.id == b"LE"
+        for lf in le.obj.chunks
+        if lf.id == b"LF"
+        for ro in lf.obj.chunks
+        if ro.id == b"RO"
+        for oc in ro.obj.chunks
+        if oc.id == b"OC"
+    }
 
 IDisassembly = tuple[int, V4Instr]
 
@@ -261,9 +260,23 @@ class IRoomData(TypedDict):
 IGameData = dict[int, IRoomData]
 
 
-def dump_all(print_data: bool = False) -> IGameData:
+def dump_all(archives: dict[str, Any], print_data: bool = False) -> IGameData:
     results: dict[int, IRoomData] = {}
-    for key, disk in DISKS.items():
+    ROOM_NAMES = get_room_names(archives)
+    GLOBAL_SCRIPT_MAP: dict[tuple[int, int], int] = {
+        (gi.room_id, gi.offset + 2): i for i, gi in enumerate(archives['000.LFL'].chunks[2].obj.items)
+    }
+
+    GLOBAL_SOUND_MAP: dict[tuple[int, int], int] = {
+        (gi.room_id, gi.offset + 2): i for i, gi in enumerate(archives['000.LFL'].chunks[3].obj.items)
+    }
+
+    GLOBAL_COSTUME_MAP: dict[tuple[int, int], int] = {
+        (gi.room_id, gi.offset + 2): i for i, gi in enumerate(archives['000.LFL'].chunks[4].obj.items)
+    }
+
+    for key in ["DISK01.LEC", "DISK02.LEC", "DISK03.LEC", "DISK04.LEC"]:
+        disk = archives[key]
         if print_data:
             print(f"- {key}")
         for i, le in enumerate(disk.chunks):
@@ -374,47 +387,47 @@ def dump_all(print_data: bool = False) -> IGameData:
     return results
 
 
-def get_room_model(scripts: IGameData, room_id: int):
+def get_room_model(archives: dict[str, Any], scripts: IGameData, room_id: int):
     room = scripts[room_id]
     room_model = (
-        DISKS[room["archive"]].chunks[room["index"][0]].obj.chunks[room["index"][1]].obj
+        archives[room["archive"]].chunks[room["index"][0]].obj.chunks[room["index"][1]].obj
     )
     return room_model
 
 
-def get_local_model(scripts: IGameData, room_id: int, script_id: int):
+def get_local_model(archives: dict[str, Any], scripts: IGameData, room_id: int, script_id: int):
     src = scripts[room_id]["locals"][script_id]
-    room_model = get_room_model(scripts, room_id)
+    room_model = get_room_model(archives, scripts, room_id)
     return room_model.chunks[src["index"][0]].obj.chunks[src["index"][1]].obj
 
 
-def update_local_model(scripts: IGameData, room_id: int, script_id: int):
+def update_local_model(archives: dict[str, Any], scripts: IGameData, room_id: int, script_id: int):
     src = scripts[room_id]["locals"][script_id]
-    local_model = get_local_model(scripts, room_id, script_id)
+    local_model = get_local_model(archives, scripts, room_id, script_id)
     local_model.data = instr_list_to_bytes(src["script"])
 
 
-def get_global_model(scripts: IGameData, room_id: int, script_id: int):
+def get_global_model(archives: dict[str, Any], scripts: IGameData, room_id: int, script_id: int):
     src = scripts[room_id]["globals"][script_id]
-    room_model = get_room_model(scripts, room_id)
+    room_model = get_room_model(archives, scripts, room_id)
     return room_model.chunks[src["index"]].obj
 
 
-def update_global_model(scripts: IGameData, room_id: int, script_id: int):
+def update_global_model(archives: dict[str, Any], scripts: IGameData, room_id: int, script_id: int):
     src = scripts[room_id]["globals"][script_id]
-    global_model = get_global_model(scripts, room_id, script_id)
+    global_model = get_global_model(archives, scripts, room_id, script_id)
     global_model.data = instr_list_to_bytes(src["script"])
 
 
-def get_object_model(scripts: IGameData, room_id: int, object_id: int):
+def get_object_model(archives: dict[str, Any], scripts: IGameData, room_id: int, object_id: int):
     src = scripts[room_id]["objects"][object_id]
-    room_model = get_room_model(scripts, room_id)
+    room_model = get_room_model(archives, scripts, room_id)
     return room_model.chunks[src["index"][0]].obj.chunks[src["index"][1]].obj
 
 
-def update_object_model(scripts: IGameData, room_id: int, object_id: int):
+def update_object_model(archives: dict[str, Any], scripts: IGameData, room_id: int, object_id: int):
     src = scripts[room_id]["objects"][object_id]
-    object_model: OC = get_object_model(scripts, room_id, object_id)
+    object_model: OC = get_object_model(archives, scripts, room_id, object_id)
     object_model.name = src["name"]
     object_model.events = []
     object_model.data = b""
@@ -428,41 +441,11 @@ def update_object_model(scripts: IGameData, room_id: int, object_id: int):
         object_model.data += code_data
 
 
-def find_pick_up_object(instr_list: list[tuple[int, V4Instr]]):
-    result = []
-    for off, x in instr_list:
-        if x.name == "pickupObject":
-            result.append({"offset": off, "obj": x.args["obj"]})
-    return result
 
-
-def shuffle_objects(content: IGameData):
-    # there's pickupObject, which removes the item from the scene and changes ownership
-    # we would need to change this to setOwner?
-
-    for room_id, room in content.items():
-        print(f'room {room_id} ({room["name"]})')
-        for global_id, glob in room["globals"].items():
-            for res in find_pick_up_object(glob["script"]):
-                print(f"- global {global_id} - [{res['offset']:04x}] {res['obj']}")
-        for local_id, local in room["locals"].items():
-            for res in find_pick_up_object(local["script"]):
-                print(f"- local {local_id} - [{res['offset']:04x}] {res['obj']}")
-        for object_id, obj in room["objects"].items():
-            for verb_id, verb in obj["verbs"].items():
-                for res in find_pick_up_object(verb):
-                    print(
-                        f"- object {object_id} ({obj['name']}) verb {verb_id} - [{res['offset']:04x}] {res['obj']}"
-                    )
-
-
-ax = dump_all(True)
-
-
-def save_all(content):
+def save_all(archives: dict[str, Any], content: IGameData, path: pathlib.Path) -> None:
     for room_id, room in content.items():
         room_model = (
-            DISKS[room["archive"]]
+            archives[room["archive"]]
             .chunks[room["index"][0]]
             .obj.chunks[room["index"][1]]
             .obj
@@ -470,7 +453,7 @@ def save_all(content):
 
         # fix up top-level offsets table in the LFL
         for global_id, glob in room["globals"].items():
-            ref = lfl.chunks[2].obj.items[global_id]
+            ref = archives["000.LFL"].chunks[2].obj.items[global_id]
             new_offset = room_model.get_field_start_offset("chunks", glob["index"]) - 2
             if ref.offset != new_offset:
                 print(
@@ -479,7 +462,7 @@ def save_all(content):
                 ref.offset = new_offset
 
         for sound_id, sound in room["sounds"].items():
-            ref = lfl.chunks[3].obj.items[sound_id]
+            ref = archives["000.LFL"].chunks[3].obj.items[sound_id]
             new_offset = room_model.get_field_start_offset("chunks", sound["index"]) - 2
             if ref.offset != new_offset:
                 print(
@@ -488,7 +471,7 @@ def save_all(content):
                 ref.offset = new_offset
 
         for costume_id, costume in room["costumes"].items():
-            ref = lfl.chunks[4].obj.items[costume_id]
+            ref = archives["000.LFL"].chunks[4].obj.items[costume_id]
             new_offset = (
                 room_model.get_field_start_offset("chunks", costume["index"]) - 2
             )
@@ -499,11 +482,11 @@ def save_all(content):
                 ref.offset = new_offset
 
         # fix up file offsets table
-        for fo in DISKS[room["archive"]].chunks[0].obj.chunks[0].obj.entries:
+        for fo in archives[room["archive"]].chunks[0].obj.chunks[0].obj.entries:
             if fo.room_id != room_id:
                 continue
             new_offset = (
-                DISKS[room["archive"]]
+                archives[room["archive"]]
                 .chunks[room["index"][0]]
                 .obj.get_field_start_offset("chunks", room["index"][1])
                 + 6
@@ -514,9 +497,9 @@ def save_all(content):
                 )
                 fo.offset = new_offset
 
-    with open(f"output/000.LFL", "wb") as f:
-        f.write(lfl.export_data())
+    with open(path / f"000.LFL", "wb") as f:
+        f.write(archives["000.LFL"].export_data())
 
-    for k, v in DISKS.items():
-        with open(f"output/{k}", "wb") as f:
-            f.write(bytes(x ^ 0x69 for x in v.export_data()))
+    for k in ["DISK01.LEC", "DISK02.LEC", "DISK03.LEC", "DISK04.LEC"]:
+        with open(path / f"{k}", "wb") as f:
+            f.write(bytes(x ^ 0x69 for x in archives[k].export_data()))

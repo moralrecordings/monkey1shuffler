@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import random
+from typing import Any
 
-from disasm import scumm_v4_tokenizer
-from resources import IGameData, get_global_model, update_global_model
+from .disasm import scumm_v4_tokenizer
+from .resources import IGameData, get_global_model, update_global_model
 
 
-def non_sequitur_swordfighting(content: IGameData, shuffle_order: bool):
+def non_sequitur_swordfighting(archives: dict[str, Any], content: IGameData, shuffle_order: bool) -> None:
     INSULT_COUNT = 16
     INSULT_FARMER = 7
     INSULT_SHISH = 1
@@ -38,8 +39,8 @@ def non_sequitur_swordfighting(content: IGameData, shuffle_order: bool):
     for i, x in enumerate(retort_ids):
         retort_script[2 + 3 * i][1].args["args"]["string"][0].data = retorts[x]
 
-    update_global_model(content, 88, 82)
-    update_global_model(content, 88, 83)
+    update_global_model(archives, content, 88, 82)
+    update_global_model(archives, content, 88, 83)
 
     convo_script = fight_room["globals"][79]["script"]
     convo_script[10][1].args["ops"][0][1]["str"][
@@ -51,7 +52,7 @@ def non_sequitur_swordfighting(content: IGameData, shuffle_order: bool):
     convo_script[25][1].args["args"]["string"][
         0
     ].data = b"That's not fair, you're using the Sword Master's non-sequiturs, I see."
-    update_global_model(content, 88, 79)
+    update_global_model(archives, content, 88, 79)
 
     smirk_room = content[43]
     training = smirk_room["globals"][57]
@@ -88,8 +89,8 @@ def non_sequitur_swordfighting(content: IGameData, shuffle_order: bool):
     training["script"][626][1].args["ops"][0][1]["str"][
         0
     ].data = b"Now I suggest you go out there and learn some non-sequiturs."
-    update_global_model(content, 43, 57)
+    update_global_model(archives, content, 43, 57)
 
-    print("\nAfter:")
-    model = get_global_model(content, 43, 57)
-    scumm_v4_tokenizer(model.data, print_data=True)
+    #print("\nAfter:")
+    #model = get_global_model(archives, content, 43, 57)
+    #scumm_v4_tokenizer(model.data, print_data=True)

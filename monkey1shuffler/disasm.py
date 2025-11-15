@@ -5,10 +5,7 @@ from dataclasses import dataclass, field
 from io import BytesIO, IOBase
 from typing import Any, Literal
 
-from mrcrowbar import models as mrc
 from mrcrowbar import utils
-from mrcrowbar.common import BytesReadType
-from mrcrowbar.transforms import TransformResult
 
 V4_VERBS: dict[int, str] = {
     1: "open",

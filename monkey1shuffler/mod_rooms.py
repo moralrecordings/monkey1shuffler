@@ -2,14 +2,14 @@ from __future__ import annotations
 
 import random
 from collections import defaultdict
-from typing import NotRequired, TypedDict
+from typing import Any, NotRequired, TypedDict
 
-from disasm import V4_VERBS, V4Instr, V4Var
-from resources import (
-    ROOM_NAMES,
+from .disasm import V4_VERBS, V4Instr, V4Var
+from .resources import (
     IDisassembly,
     IGameData,
     dump_all,
+    get_room_names,
     update_global_model,
     update_local_model,
     update_object_model,
@@ -239,6 +239,7 @@ class IRoomLink(TypedDict):
 
 
 def generate_room_links(
+    archives: dict[str, Any],
     content: IGameData,
 ) -> defaultdict[tuple[int, int], list[IRoomLink]]:
     result: defaultdict[tuple[int, int], list[IRoomLink]] = defaultdict(list)
@@ -291,7 +292,7 @@ def generate_room_links(
     #                        "global_id": global_id,
     #                    }
     #                )
-
+    ROOM_NAMES = get_room_names(archives)
     for k in sorted(result.keys()):
         print(k, (ROOM_NAMES.get(k[0]), ROOM_NAMES.get(k[1])))
         for x in result[k]:
@@ -303,20 +304,18 @@ def ruin_scumm_bar(content: IGameData):
     # content[33]["objects"][437]["verbs"][10][1][1].args['room'] = 78
     # content[33]["objects"][437]["verbs"][10][1][1].args['obj'] = 819
     # update_object_model(content, 33, 437)
-    import pdb
-
-    pdb.set_trace()
     swap_room_links(content, (33, 28), (34, 78))
 
 
 def swap_room_links(
+    archives: dict[str, Any],
     content: IGameData,
     link_src: tuple[int, int],
     link_dest: tuple[int, int],
     room_links=None,
     half=False,
 ):
-    room_links = room_links if room_links else generate_room_links(content)
+    room_links = room_links if room_links else generate_room_links(archives, content)
 
     src = room_links[tuple(sorted(link_src))]
     dest = room_links[tuple(sorted(link_dest))]
@@ -390,11 +389,11 @@ def swap_room_links(
             start += 1
 
         if link["type"] == "object":
-            update_object_model(content, link["room_src"], link["obj_id"])
+            update_object_model(archives, content, link["room_src"], link["obj_id"])
         elif link["type"] == "global":
-            update_global_model(content, link["room_src"], link["global_id"])
+            update_global_model(archives, content, link["room_src"], link["global_id"])
         elif link["type"] == "local":
-            update_local_model(content, link["room_src"], link["local_id"])
+            update_local_model(archives, content, link["room_src"], link["local_id"])
 
     # get code snippets for existing links
     for link in [*src, *dest]:
@@ -431,8 +430,8 @@ def swap_room_links(
             # change to link_src[1], link_dest[0]
 
 
-def generate_room_linkmap(content: IGameData):
-    room_links = generate_room_links(content)
+def generate_room_linkmap(archives: dict[str, Any], content: IGameData):
+    room_links = generate_room_links(archives, content)
     room_linkmap = defaultdict(set)
 
     all_links = set()
@@ -450,8 +449,8 @@ def generate_room_linkmap(content: IGameData):
     return room_linkmap
 
 
-def find_room_cluster(content: IGameData, start_room: int):
-    room_linkmap = generate_room_linkmap(content)
+def find_room_cluster(archives: dict[str, Any], content: IGameData, start_room: int):
+    room_linkmap = generate_room_linkmap(archives, content)
 
     result = set()
 
@@ -465,11 +464,11 @@ def find_room_cluster(content: IGameData, start_room: int):
     return result
 
 
-def shuffle_room_links(content: IGameData):
-    room_links = generate_room_links(content)
-    room_linkmap = generate_room_linkmap(content)
+def shuffle_rooms(archives: dict[str, Any], content: IGameData):
+    room_links = generate_room_links(archives, content)
+    room_linkmap = generate_room_linkmap(archives, content)
     # start from the dock
-    room_cluster = find_room_cluster(content, 33)
+    room_cluster = find_room_cluster(archives, content, 33)
     # - start from the first room
     # - for each of the hub rooms
     #   - pick an exit, connect it up
@@ -479,7 +478,6 @@ def shuffle_room_links(content: IGameData):
     dead_ends = {
         k: v for k, v in room_linkmap.items() if len(v) == 1 and k in room_cluster
     }
-    random.seed(999)
 
     start_hub = hubs.pop(33)
     links = {(33, x) for x in start_hub}
@@ -495,14 +493,14 @@ def shuffle_room_links(content: IGameData):
             hub_links.remove(new_link)
             new_link = (new_link[1], new_link[0])
             print(f"--- new_link: {new_link}, hubs: {hubs}")
-            swap_room_links(content, orig_link, new_link, room_links, True)
+            swap_room_links(archives, content, orig_link, new_link, room_links, True)
             links.update(hub_links)
         else:
             dead_end_id = random.choice(list(dead_ends.keys()))
             dead_end = dead_ends.pop(dead_end_id)
             new_link = (dead_end.pop(), dead_end_id)
             print(f"--- new_link: {new_link}, dead_ends: {dead_ends}")
-            swap_room_links(content, orig_link, new_link, room_links, True)
+            swap_room_links(archives, content, orig_link, new_link, room_links, True)
 
     return
 

@@ -6,8 +6,13 @@ import argparse
 import pathlib
 import random
 
-VERSION = "0.1"
+from monkey1shuffler.mod_rooms import shuffle_rooms
+from monkey1shuffler.mod_sword import non_sequitur_swordfighting
 
+from .mod_misc import debug_mode, skip_code_wheel, turbo_mode
+from .resources import dump_all, get_archives, save_all
+
+from .version import __version__
 
 def main():
     parser = argparse.ArgumentParser(
@@ -68,7 +73,7 @@ def main():
         help="Force the game to run at a much faster framerate.",
     )
     parser.add_argument(
-        "--version", "-V", action="version", version=f"%(prog)s {VERSION}"
+        "--version", "-V", action="version", version=f"%(prog)s {__version__}"
     )
     args = parser.parse_args()
 
@@ -87,6 +92,22 @@ def main():
     if use_random:
         print(f"Using random seed {random_seed}")
 
+    archives = get_archives(args.SOURCE) 
+    content = dump_all(archives)
+    if args.shuffle_rooms:
+        shuffle_rooms(archives, content)
+        random.seed(random_seed)
+    if args.non_sequitur_swordfighting:
+        random.seed(random_seed)
+        non_sequitur_swordfighting(archives, content, args.change_insult_order)
+    if args.skip_code_wheel:
+        skip_code_wheel(archives, content)
+    if args.debug_mode:
+        debug_mode(archives, content)
+    if args.turbo_mode:
+        turbo_mode(archives, content)
+    save_all(archives, content, args.DEST)
+    
 
 if __name__ == "__main__":
     main()

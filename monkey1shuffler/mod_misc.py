@@ -1,18 +1,20 @@
 from __future__ import annotations
 
 import random
+from typing import Any
 
-from disasm import V4Instr, V4TextToken, V4Var
-from resources import (
+from .disasm import V4Instr, V4TextToken, V4Var, scumm_v4_tokenizer
+from .resources import (
     IDisassembly,
     IGameData,
+    get_global_model,
     update_global_model,
     update_local_model,
     update_object_model,
 )
 
 
-def test_mod_intro(scripts: IGameData):
+def test_mod_intro(archives: dict[str, Any], scripts: IGameData):
 
     replace = V4Instr(
         0xD8,
@@ -40,13 +42,13 @@ def test_mod_intro(scripts: IGameData):
     # local = get_local_model(scripts, 38, 203)
     # print("\nBefore:")
     # scumm_v4_tokenizer(local.data, print_data=True)
-    update_local_model(scripts, 38, 203)
+    update_local_model(archives, scripts, 38, 203)
 
     # print("\nAfter:")
     # scumm_v4_tokenizer(local.data, print_data=True)
 
 
-def test_mod_dock_poster(content: IGameData):
+def test_mod_dock_poster(archives: dict[str, Any], content: IGameData):
     replace = V4Instr(
         0xD8,
         "printEgo",
@@ -71,10 +73,22 @@ def test_mod_dock_poster(content: IGameData):
     vx = content[33]["objects"][438]["verbs"][9]
     vx[-5] = (vx[-5][0], replace)
 
-    update_object_model(content, 33, 438)
+    update_object_model(archives, content, 33, 438)
 
 
-def turbo_mode(content: IGameData, timer_interval: int = 2):
+def debug_mode(archives: dict[str, Any], content: IGameData):
+    script_model = get_global_model(archives, content, 10, 1)
+    #print("Before:")
+    #scumm_v4_tokenizer(script_model.data, print_data=True)
+
+    script = content[10]['globals'][1]['script']
+    script.insert(0, (0, V4Instr(0x19, "move", args={"value": 1}, target=V4Var(39, None)))) # VAR_DEBUGMODE
+    update_global_model(archives, content, 10, 1)
+    #print("After:")
+    #scumm_v4_tokenizer(script_model.data, print_data=True)
+
+
+def turbo_mode(archives: dict[str, Any], content: IGameData, timer_interval: int = 2):
     # scrub through every script and replace the VAR_TIMER_NEXT set statements
 
     def mod_script(script: list[IDisassembly]) -> bool:
@@ -93,8 +107,19 @@ def turbo_mode(content: IGameData, timer_interval: int = 2):
     for room_id, room in content.items():
         for global_id, glob in room["globals"].items():
             if mod_script(glob["script"]):
-                update_global_model(content, room_id, global_id)
+                update_global_model(archives, content, room_id, global_id)
 
         for local_id, local in room["locals"].items():
             if mod_script(local["script"]):
-                update_local_model(content, room_id, local_id)
+                update_local_model(archives, content, room_id, local_id)
+
+
+def skip_code_wheel(archives: dict[str, Any], content: IGameData):
+    script = content[10]['globals'][1]['script']
+    i = 0
+    while i < len(script):
+        if script[i][1].name == "startScript" and script[i][1].args['script'] == 152:
+            del script[i:i+4]
+            break
+        i += 1
+    update_global_model(archives, content, 10, 1)
