@@ -985,18 +985,25 @@ def text_tokens_to_bytes(tokens: list[V4TextToken]) -> bytes:
             case "wait":
                 result.extend(b"\xff\x03")
             case "getInt":
+                assert isinstance(token.data, V4Var)
                 result.extend(b"\xff\x04" + token.data.raw())
             case "getVerb":
+                assert isinstance(token.data, V4Var)
                 result.extend(b"\xff\x05" + token.data.raw())
             case "getName":
+                assert isinstance(token.data, V4Var)
                 result.extend(b"\xff\x06" + token.data.raw())
             case "getString":
+                assert isinstance(token.data, V4Var)
                 result.extend(b"\xff\x07" + token.data.raw())
             case "startAnim":
+                assert isinstance(token.data, V4Var)
                 result.extend(b"\xff\x09" + token.data.raw())
             case "setColor":
+                assert isinstance(token.data, int)
                 result.extend(b"\xff\x0c" + utils.from_int16_le(token.data))
             case "setFont":
+                assert isinstance(token.data, int)
                 result.extend(b"\xff\x0e" + utils.from_int16_le(token.data))
     result.append(0x00)
     return bytes(result)
@@ -1364,7 +1371,7 @@ def v4_instr_to_bytes(instr: V4Instr) -> bytes:
             opcode = 0x24 | (0x80 if a1 else 0x00) | (0x40 if a2 else 0x00)
             raw = bytes([opcode])
             raw += obj.raw() if a1 else utils.to_int16_le(obj)
-            raw += room.raw() if a2 else utils.to_int16_le(room)
+            raw += room.raw() if a2 else utils.to_uint8(room)
             raw += utils.to_int16_le(x)
             raw += utils.to_int16_le(y)
             return raw
