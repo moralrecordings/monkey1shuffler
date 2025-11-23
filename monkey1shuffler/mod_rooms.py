@@ -4,12 +4,20 @@ import random
 from collections import defaultdict
 from typing import Any, NotRequired, TypedDict
 
-from .disasm import V4_VERBS, V4Instr, V4Var
+from .disasm import (
+    V4_VERBS,
+    V4Instr,
+    V4Var,
+    instr_list_to_bytes,
+    nop,
+    scumm_v4_tokenizer,
+)
 from .resources import (
     IDisassembly,
     IGameData,
     dump_all,
     get_room_names,
+    update_entry_model,
     update_global_model,
     update_local_model,
     update_object_model,
@@ -175,6 +183,10 @@ MI1EGA_ROOM_CLUSTER: dict[str, set[int]] = {
     },
 }
 
+MI1EGA_UNUSUABLE_ROOM_LINK = [
+    (53, 36),  # foyer -> mansion-e
+]
+
 
 def find_room_links(room_id: int, instr_list: list[tuple[int, V4Instr]]):
     result = []
@@ -243,12 +255,13 @@ def generate_room_links(
     content: IGameData,
 ) -> defaultdict[tuple[int, int], list[IRoomLink]]:
     result: defaultdict[tuple[int, int], list[IRoomLink]] = defaultdict(list)
+    key: tuple[int, int]
 
     for room_id, room in content.items():
         for obj_id, obj in room["objects"].items():
             for verb_id, verb in obj["verbs"].items():
                 for match in find_room_links(room_id, verb):
-                    key: tuple[int, int] = (
+                    key = (
                         (room_id, match["room"])
                         if room_id < match["room"]
                         else (match["room"], room_id)
@@ -266,7 +279,7 @@ def generate_room_links(
                     )
         for local_id, local in room["locals"].items():
             for match in find_room_links(room_id, local["script"]):
-                key: tuple[int, int] = (
+                key = (
                     (room_id, match["room"])
                     if room_id < match["room"]
                     else (match["room"], room_id)
@@ -300,11 +313,11 @@ def generate_room_links(
     return result
 
 
-def ruin_scumm_bar(content: IGameData):
+def ruin_scumm_bar(archives: dict[str, Any], content: IGameData):
     # content[33]["objects"][437]["verbs"][10][1][1].args['room'] = 78
     # content[33]["objects"][437]["verbs"][10][1][1].args['obj'] = 819
     # update_object_model(content, 33, 437)
-    swap_room_links(content, (33, 28), (34, 78))
+    swap_room_links(archives, content, (33, 28), (34, 78))
 
 
 def swap_room_links(
@@ -312,15 +325,21 @@ def swap_room_links(
     content: IGameData,
     link_src: tuple[int, int],
     link_dest: tuple[int, int],
-    room_links=None,
-    half=False,
+    room_links: defaultdict[tuple[int, int], list[IRoomLink]] | None = None,
+    half: bool = False,
+    print_all: bool = False,
 ):
+    # import pdb; pdb.set_trace()
     room_links = room_links if room_links else generate_room_links(archives, content)
 
     src = room_links[tuple(sorted(link_src))]
     dest = room_links[tuple(sorted(link_dest))]
 
-    print(f"Swap room links {link_src} {link_dest}")
+    ROOM_NAMES = get_room_names(archives)
+    if print_all:
+        print(
+            f"Swap room links {link_src} ({ROOM_NAMES[link_src[0]]} -> {ROOM_NAMES[link_src[1]]}) and {link_dest} ({ROOM_NAMES[link_dest[0]]} -> {ROOM_NAMES[link_dest[1]]})"
+        )
 
     code_snippets = {}
 
@@ -358,6 +377,8 @@ def swap_room_links(
 
     # overwrite an existing link with some replacement code
     def inject_snippet(link: IRoomLink, snippet: list[IDisassembly]):
+        if print_all:
+            print(f"Injecting {link} with {snippet}")
         code = None
         if link["type"] == "object":
             code = content[link["room_src"]]["objects"][link["obj_id"]]["verbs"][
@@ -369,6 +390,10 @@ def swap_room_links(
             code = content[link["room_src"]]["locals"][link["local_id"]]["script"]
         if not code:
             return
+
+        if print_all:
+            print("Disasm before:")
+            scumm_v4_tokenizer(instr_list_to_bytes(code), print_data=True)
 
         start = 0
         while start < len(code):
@@ -387,6 +412,10 @@ def swap_room_links(
                         ]
                     break
             start += 1
+
+        if print_all:
+            print("Disasm after:")
+            scumm_v4_tokenizer(instr_list_to_bytes(code), print_data=True)
 
         if link["type"] == "object":
             update_object_model(archives, content, link["room_src"], link["obj_id"])
@@ -412,20 +441,24 @@ def swap_room_links(
         link_test = (link["room_src"], link["room_dest"])
         if link_test == (link_src[0], link_src[1]):
             # change to link_src[0], link_dest[1]
-            print(f"Swapping {link_test} -> {(link_dest[0], link_dest[1])} ")
+            if print_all:
+                print(f"Swapping {link_test} -> {(link_dest[0], link_dest[1])} ")
             inject_snippet(link, code_snippets[link_dest[0], link_dest[1]])
 
         elif link_test == (link_src[1], link_src[0]) and not half:
-            print(f"Swapping {link_test} -> {(link_dest[1], link_dest[0])}")
+            if print_all:
+                print(f"Swapping {link_test} -> {(link_dest[1], link_dest[0])}")
             inject_snippet(link, code_snippets[link_dest[1], link_dest[0]])
 
             # change to link_dest[1], link_src[0]
         elif link_test == (link_dest[0], link_dest[1]) and not half:
-            print(f"Swapping {link_test} -> {(link_src[0], link_src[1])}")
+            if print_all:
+                print(f"Swapping {link_test} -> {(link_src[0], link_src[1])}")
             inject_snippet(link, code_snippets[link_src[0], link_src[1]])
             # change to link_dest[0], link_src[1]
         elif link_test == (link_dest[1], link_dest[0]):
-            print(f"Swapping {link_test} -> {(link_src[1], link_src[0])}")
+            if print_all:
+                print(f"Swapping {link_test} -> {(link_src[1], link_src[0])}")
             inject_snippet(link, code_snippets[link_src[1], link_src[0]])
             # change to link_src[1], link_dest[0]
 
@@ -464,7 +497,9 @@ def find_room_cluster(archives: dict[str, Any], content: IGameData, start_room: 
     return result
 
 
-def shuffle_rooms(archives: dict[str, Any], content: IGameData):
+def shuffle_rooms(
+    archives: dict[str, Any], content: IGameData, print_all: bool = False
+):
     room_links = generate_room_links(archives, content)
     room_linkmap = generate_room_linkmap(archives, content)
     # start from the dock
@@ -484,25 +519,69 @@ def shuffle_rooms(archives: dict[str, Any], content: IGameData):
     while links:
         orig_link = random.choice(list(links))
         links.remove(orig_link)
-        print(f"--- orig_link: {orig_link}, links: {links}")
+        if print_all:
+            print(f"--- orig_link: {orig_link}, links: {links}")
         if hubs:
             hub_id = random.choice(list(hubs.keys()))
             hub = hubs.pop(hub_id)
             hub_links = [(hub_id, h) for h in hub]
+            for hl in list(hub_links):
+                if (hl[1], hl[0]) in MI1EGA_UNUSUABLE_ROOM_LINK or (
+                    hl[1],
+                    hl[0],
+                ) == orig_link:
+                    links.add(hl)
+                    hub_links.remove(hl)
             new_link = random.choice(hub_links)
             hub_links.remove(new_link)
             new_link = (new_link[1], new_link[0])
-            print(f"--- new_link: {new_link}, hubs: {hubs}")
-            swap_room_links(archives, content, orig_link, new_link, room_links, True)
+            if print_all:
+                print(f"--- new_link: {new_link}, hubs: {hubs}")
+            swap_room_links(
+                archives, content, orig_link, new_link, room_links, print_all=print_all
+            )
             links.update(hub_links)
+            return
         else:
             dead_end_id = random.choice(list(dead_ends.keys()))
             dead_end = dead_ends.pop(dead_end_id)
             new_link = (dead_end.pop(), dead_end_id)
-            print(f"--- new_link: {new_link}, dead_ends: {dead_ends}")
-            swap_room_links(archives, content, orig_link, new_link, room_links, True)
+            if print_all:
+                print(f"--- FAKE new_link: {new_link}, dead_ends: {dead_ends}")
+            # swap_room_links(archives, content, orig_link, new_link, room_links, True)
 
     return
+
+
+def room_script_fixups(archives: dict[str, Any], content: IGameData):
+    # room 34 (high street) has an entry script that checks if the player
+    # is arriving from room 38 (lookout) and moves ego to in front of the store.
+    # no idea why this is here, maybe a debug leftover?
+    src = content[34]["entry"]["script"]
+
+    modded = False
+    for i, (_, instr) in enumerate(src):
+        if (
+            instr.name == "isEqual"
+            and isinstance(instr.args["a"], V4Var)
+            and instr.args["a"].id == 101
+            and instr.args["b"] == 38
+        ):
+            # because this is in a big pile of ifs, it's easier to keep the indexes
+            src[i] = (src[i][0], nop())
+            src[i + 1] = (src[i + 1][0] + 3, nop())
+            src[i + 2] = (src[i + 2][0] + 6, nop())
+            modded = True
+            break
+
+    # it also makes the screen scroll, which we don't want
+    for i, (_, instr) in enumerate(src):
+        if instr.name == "roomOps" and instr.args["op"] == "SO_ROOM_SCROLL":
+            src[i] = (src[i][0], nop())
+            modded = True
+
+    if modded:
+        update_entry_model(archives, content, 34)
 
 
 def room_links_1():

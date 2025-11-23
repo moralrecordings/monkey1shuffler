@@ -6,13 +6,12 @@ import argparse
 import pathlib
 import random
 
-from monkey1shuffler.mod_rooms import shuffle_rooms
-from monkey1shuffler.mod_sword import non_sequitur_swordfighting
-
 from .mod_misc import debug_mode, skip_code_wheel, turbo_mode
+from .mod_rooms import room_script_fixups, shuffle_rooms
+from .mod_sword import non_sequitur_swordfighting
 from .resources import dump_all, get_archives, save_all
-
 from .version import __version__
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -73,7 +72,14 @@ def main():
         help="Force the game to run at a much faster framerate.",
     )
     parser.add_argument(
-        "--version", "-V", action="version", version=f"%(prog)s {__version__}"
+        "--version",
+        "-V",
+        action="version",
+        version=f"%(prog)s {__version__}",
+        help="Show program's version number and exit.",
+    )
+    parser.add_argument(
+        "--verbose", "-v", action="store_true", help="Show verbose logging output."
     )
     args = parser.parse_args()
 
@@ -92,11 +98,12 @@ def main():
     if use_random:
         print(f"Using random seed {random_seed}")
 
-    archives = get_archives(args.SOURCE) 
-    content = dump_all(archives)
+    archives = get_archives(args.SOURCE)
+    content = dump_all(archives, print_data=args.verbose)
     if args.shuffle_rooms:
-        shuffle_rooms(archives, content)
         random.seed(random_seed)
+        room_script_fixups(archives, content)
+        shuffle_rooms(archives, content, print_all=args.verbose)
     if args.non_sequitur_swordfighting:
         random.seed(random_seed)
         non_sequitur_swordfighting(archives, content, args.change_insult_order)
@@ -106,8 +113,8 @@ def main():
         debug_mode(archives, content)
     if args.turbo_mode:
         turbo_mode(archives, content)
-    save_all(archives, content, args.DEST)
-    
+    save_all(archives, content, args.DEST, print_all=args.verbose)
+
 
 if __name__ == "__main__":
     main()

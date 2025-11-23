@@ -1407,14 +1407,21 @@ def instr_list_to_bytes(instrs: list[tuple[int, V4Instr]]) -> bytes:
 
     # - create new offsets list based on code size
     pos = instrs[0][0]
+    old_bases = [x for x, _ in instrs]
+    print(f"Old bases: {old_bases}")
     new_bases = []
     for off, instr in instrs:
         new_bases.append(pos)
         pos += len(v4_instr_to_bytes(instr))
+    print(f"New bases: {new_bases}")
     for i, (off, instr) in enumerate(instrs):
+        print((off, instr))
         if "offset" in instr.args:
+            # filter nops
+            if instr.name == "jumpRelative" and instr.args["offset"] == 0:
+                continue
             target = off + len(v4_instr_to_bytes(instr)) + instr.args["offset"]
-            target_idx = [x for x, _ in instrs].index(target)
+            target_idx = old_bases.index(target)
 
             offset_old = instr.args["offset"]
             instr.args["offset"] = new_bases[target_idx] - len(instr.raw) - new_bases[i]
@@ -2087,6 +2094,10 @@ def get_v4_instr(stream: IOBase) -> V4Instr | None:
     stream.seek(start)
     result.raw = stream.read(end - start)
     return result
+
+
+def nop():
+    return V4Instr(0x18, "jumpRelative", {"offset": 0})
 
 
 def scumm_v4_tokenizer(
