@@ -585,7 +585,7 @@ def fix_high_street(archives: dict[str, Any], content: IGameData):
 
 
 def fix_bridge_on_map(archives: dict[str, Any], content: IGameData):
-    # the map screen has a bridge on it, blocked by a troll. this physically
+    # the map screen has a bridge on it, blocked by a troll. normally this
     # prevents you from walking to stan's and the gym. to simplify things:
     # - treat the bridge as a hub screen with an entrance and an exit
     # - rig the map screen to never block movement
@@ -603,7 +603,48 @@ def fix_bridge_on_map(archives: dict[str, Any], content: IGameData):
     if modded:
         update_entry_model(archives, content, 85)
 
-    pass
+
+def fix_damn_forest_block(archives: dict[str, Any], content: IGameData):
+    # the game tries to be helpful and blocks you from entering the forest unless
+    # you have a map or are stalking the storekeeper. making this work with the randomiser
+    # sounds painful, so instead we just disable the check. enjoy the damn forest!
+
+    # left hand exit
+    src = content[58]["objects"][669]["verbs"][10]
+    modded = False
+    for i, (_, instr) in enumerate(src):
+        if instr.name == "getObjectOwner" and instr.args["obj"] == 449:
+            src[i] = (src[i][0], nop())
+            src[i + 1] = (src[i + 1][0], nop())
+            src[i + 2] = (src[i + 2][0], nop())
+            src[i + 3] = (src[i + 3][0], nop())
+            src[i + 4] = (src[i + 4][0], nop())
+            src[i + 5] = (src[i + 5][0], nop())
+            modded = True
+            break
+
+    if modded:
+        update_object_model(archives, content, 58, 669)
+
+    # top exit
+    src = content[58]["objects"][666]["verbs"][10]
+    modded = False
+    for i, (_, instr) in enumerate(src):
+        if instr.name == "getObjectOwner" and instr.args["obj"] == 449:
+            src[i] = (src[i][0], nop())
+            src[i + 1] = (src[i + 1][0], nop())
+            src[i + 2] = (src[i + 2][0], nop())
+            src[i + 3] = (src[i + 3][0], nop())
+            src[i + 4] = (src[i + 4][0], nop())
+            src[i + 5] = (src[i + 5][0], nop())
+            src[i + 6] = (src[i + 5][0], nop())
+            src[i + 7] = (src[i + 5][0], nop())
+            src[i + 8] = (src[i + 5][0], nop())
+            modded = True
+            break
+
+    if modded:
+        update_object_model(archives, content, 58, 666)
 
 
 def fix_cutscene_links(archive: dict[str, Any], content: IGameData):
@@ -615,12 +656,7 @@ def fix_cutscene_links(archive: dict[str, Any], content: IGameData):
 def room_script_fixups(archives: dict[str, Any], content: IGameData):
     fix_high_street(archives, content)
     fix_bridge_on_map(archives, content)
-
-    # the map screen has a bridge on it, blocked by a troll. this physically
-    # prevents you from walking to stan's and the gym. to simplify things:
-    # - treat the bridge as a hub screen with an entrance and an exit
-    # - rig the map screen to never block movement
-    # - treat the bridge hotspot on the map as a hub exit, like any other map hotspot
+    fix_damn_forest_block(archives, content)
 
     # the game tries to be helpful and blocks you from entering the forest unless
     # you have a map or are stalking the storekeeper. making this work with the randomiser
