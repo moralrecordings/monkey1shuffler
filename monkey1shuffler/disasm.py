@@ -1319,7 +1319,7 @@ def v4_instr_to_bytes(instr: V4Instr) -> bytes:
             classes = instr.args["classes"]
             offset = instr.args["offset"]
             a1 = isinstance(obj, V4Var)
-            opcode = 0x1F | (0x80 if a1 else 0x00)
+            opcode = 0x1D | (0x80 if a1 else 0x00)
             raw = bytes([opcode])
             raw += obj.raw() if a1 else utils.to_int16_le(obj)
             for klass in classes:
@@ -1419,6 +1419,7 @@ def instr_list_to_bytes(instrs: list[tuple[int, V4Instr]]) -> bytes:
         if "offset" in instr.args:
             # filter nops
             if instr.name == "jumpRelative" and instr.args["offset"] == 0:
+                result.extend(v4_instr_to_bytes(instr))
                 continue
             target = off + len(v4_instr_to_bytes(instr)) + instr.args["offset"]
             target_idx = old_bases.index(target)

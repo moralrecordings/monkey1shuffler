@@ -508,7 +508,11 @@ def get_entry_model(archives: dict[str, Any], scripts: IGameData, room_id: int):
 def update_entry_model(archives: dict[str, Any], scripts: IGameData, room_id: int):
     src = scripts[room_id]["entry"]
     entry_model = get_entry_model(archives, scripts, room_id)
+    # print("Before:")
+    # scumm_v4_tokenizer(entry_model.data, print_data=True)
     entry_model.data = instr_list_to_bytes(src["script"])
+    # print("After:")
+    # scumm_v4_tokenizer(entry_model.data, print_data=True)
 
 
 def get_exit_model(archives: dict[str, Any], scripts: IGameData, room_id: int):

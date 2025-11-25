@@ -553,7 +553,7 @@ def shuffle_rooms(
     return
 
 
-def room_script_fixups(archives: dict[str, Any], content: IGameData):
+def fix_high_street(archives: dict[str, Any], content: IGameData):
     # room 34 (high street) has an entry script that checks if the player
     # is arriving from room 38 (lookout) and moves ego to in front of the store.
     # no idea why this is here, maybe a debug leftover?
@@ -569,8 +569,8 @@ def room_script_fixups(archives: dict[str, Any], content: IGameData):
         ):
             # because this is in a big pile of ifs, it's easier to keep the indexes
             src[i] = (src[i][0], nop())
-            src[i + 1] = (src[i + 1][0] + 3, nop())
-            src[i + 2] = (src[i + 2][0] + 6, nop())
+            src[i + 1] = (src[i + 1][0], nop())
+            src[i + 2] = (src[i + 2][0], nop())
             modded = True
             break
 
@@ -582,6 +582,49 @@ def room_script_fixups(archives: dict[str, Any], content: IGameData):
 
     if modded:
         update_entry_model(archives, content, 34)
+
+
+def fix_bridge_on_map(archives: dict[str, Any], content: IGameData):
+    # the map screen has a bridge on it, blocked by a troll. this physically
+    # prevents you from walking to stan's and the gym. to simplify things:
+    # - treat the bridge as a hub screen with an entrance and an exit
+    # - rig the map screen to never block movement
+    # - treat the bridge hotspot on the map as a hub exit, like any other map hotspot
+
+    # map screen runs local script 200 if we haven't got rid of the troll, which
+    # polls how close we are to the bridge and auto-boots us to the room.
+    src = content[85]["entry"]["script"]
+    modded = False
+    for i, (_, instr) in enumerate(src):
+        if instr.name == "startScript" and instr.args["script"] == 200:
+            src[i] = (src[i][0], nop())
+            modded = True
+
+    if modded:
+        update_entry_model(archives, content, 85)
+
+    pass
+
+
+def fix_cutscene_links(archive: dict[str, Any], content: IGameData):
+    # the game has a few cutscenes triggered by leaving an area, which (after all the rooms
+    # are shuffled) need to be rewired to match the destination.
+    pass
+
+
+def room_script_fixups(archives: dict[str, Any], content: IGameData):
+    fix_high_street(archives, content)
+    fix_bridge_on_map(archives, content)
+
+    # the map screen has a bridge on it, blocked by a troll. this physically
+    # prevents you from walking to stan's and the gym. to simplify things:
+    # - treat the bridge as a hub screen with an entrance and an exit
+    # - rig the map screen to never block movement
+    # - treat the bridge hotspot on the map as a hub exit, like any other map hotspot
+
+    # the game tries to be helpful and blocks you from entering the forest unless
+    # you have a map or are stalking the storekeeper. making this work with the randomiser
+    # sounds painful, so instead we just disable the check.
 
 
 def room_links_1():
