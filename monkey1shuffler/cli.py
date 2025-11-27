@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import pathlib
 import random
+import sys
 
 from .mod_misc import debug_mode, skip_code_wheel, turbo_mode
 from .mod_rooms import room_script_fixups, shuffle_rooms
@@ -13,7 +14,7 @@ from .resources import dump_all, get_archives, save_all
 from .version import __version__
 
 
-def main():
+def main(argv: list[str] | None = None):
     parser = argparse.ArgumentParser(
         description="Secret of Monkey Island (EGA) Randomiser"
     )
@@ -81,7 +82,7 @@ def main():
     parser.add_argument(
         "--verbose", "-v", action="store_true", help="Show verbose logging output."
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv or sys.argv[1:])
 
     if args.SOURCE == args.DEST:
         parser.exit(1, "Source and destination paths must be different\n")
@@ -100,6 +101,7 @@ def main():
 
     archives = get_archives(args.SOURCE)
     content = dump_all(archives, print_data=args.verbose)
+    print("Modifying code...")
     if args.shuffle_rooms:
         random.seed(random_seed)
         room_script_fixups(archives, content)
@@ -114,6 +116,7 @@ def main():
     if args.turbo_mode:
         turbo_mode(archives, content)
     save_all(archives, content, args.DEST, print_all=args.verbose)
+    print(f"Done.")
 
 
 if __name__ == "__main__":

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import pathlib
 from typing import Any, TypedDict
 
@@ -185,7 +186,8 @@ class LFL(mrc.Block):
 def get_archives(path: pathlib.Path) -> dict[str, Any]:
     result = {}
     for arch in ["DISK01.LEC", "DISK02.LEC", "DISK03.LEC", "DISK04.LEC"]:
-        f = bytearray(x ^ 0x69 for x in open(path / arch, "rb").read())
+        with open(path / arch, "rb") as file:
+            f = bytearray(x ^ 0x69 for x in file.read())
 
         # for some reason, DISK01.LEC has an invalid chunk size for the sound block in room 10.
         # fix it manually before loading.
@@ -194,8 +196,12 @@ def get_archives(path: pathlib.Path) -> dict[str, Any]:
             if bodge:
                 f[bodge[0][0] : bodge[0][0] + 4] = utils.to_uint32_le(0x8115)
         f = bytes(f)
-        result[arch] = LEC(f)
-    result["000.LFL"] = LFL(open("000.LFL", "rb").read())
+        print(f"Parsing {arch} ({len(f)} bytes, md5 {hashlib.md5(f).hexdigest()})...")
+        result[arch] = LEC(f, strict=True)
+    with open(path / "000.LFL", "rb") as file:
+        f = file.read()
+        print(f"Parsing 000.LFL ({len(f)} bytes, md5 {hashlib.md5(f).hexdigest()})...")
+        result["000.LFL"] = LFL(f, strict=True)
     return result
 
 
@@ -533,6 +539,7 @@ def save_all(
     path: pathlib.Path,
     print_all: bool = False,
 ) -> None:
+    print(f"Updating resource offset tables in 000.LFL...")
     for room_id, room in content.items():
         room_model = (
             archives[room["archive"]]
@@ -591,9 +598,11 @@ def save_all(
                     )
                 fo.offset = new_offset
 
+    print("Generating new 000.LFL...")
     with open(path / f"000.LFL", "wb") as f:
         f.write(archives["000.LFL"].export_data())
 
     for k in ["DISK01.LEC", "DISK02.LEC", "DISK03.LEC", "DISK04.LEC"]:
+        print(f"Generating new {k}...")
         with open(path / f"{k}", "wb") as f:
             f.write(bytes(x ^ 0x69 for x in archives[k].export_data()))

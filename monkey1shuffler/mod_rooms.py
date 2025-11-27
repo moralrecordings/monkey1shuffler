@@ -436,6 +436,11 @@ def swap_room_links(
         elif link_test == (link_dest[1], link_dest[0]):
             code_snippets[(link_dest[1], link_dest[0])] = get_snippet(link)
 
+    if print_all:
+        print("Code snippets:")
+        for k, v in code_snippets.items():
+            print(k, v)
+
     # inject code snippets over links
     for link in [*src, *dest]:
         link_test = (link["room_src"], link["room_dest"])
@@ -514,8 +519,26 @@ def shuffle_rooms(
         k: v for k, v in room_linkmap.items() if len(v) == 1 and k in room_cluster
     }
 
-    start_hub = hubs.pop(33)
-    links = {(33, x) for x in start_hub}
+    import pdb
+
+    pdb.set_trace()
+    ORIGIN = 33
+    nodes = set(room_linkmap.keys())
+    nodes_to_test = {ORIGIN}
+    nodes_done = set()
+    edges = set()
+    while nodes_to_test:
+        node = nodes_to_test.pop()
+        nodes_done.add(node)
+        edges.update([(node, x) for x in room_linkmap[node] if x not in nodes_done])
+        nodes_to_test.update([x for x in room_linkmap[node] if x not in nodes_done])
+
+    start_hub = hubs.pop(ORIGIN)
+    links = {(ORIGIN, x) for x in start_hub}
+
+    # we need to generate the new map first, then use that information to rewire the links.
+    # doing it progressively will lead to double handling and errors.
+
     while links:
         orig_link = random.choice(list(links))
         links.remove(orig_link)
@@ -538,17 +561,24 @@ def shuffle_rooms(
             if print_all:
                 print(f"--- new_link: {new_link}, hubs: {hubs}")
             swap_room_links(
-                archives, content, orig_link, new_link, room_links, print_all=print_all
+                archives,
+                content,
+                orig_link,
+                new_link,
+                room_links,
+                True,
+                print_all=print_all,
             )
             links.update(hub_links)
-            return
         else:
             dead_end_id = random.choice(list(dead_ends.keys()))
             dead_end = dead_ends.pop(dead_end_id)
             new_link = (dead_end.pop(), dead_end_id)
             if print_all:
                 print(f"--- FAKE new_link: {new_link}, dead_ends: {dead_ends}")
-            # swap_room_links(archives, content, orig_link, new_link, room_links, True)
+            swap_room_links(
+                archives, content, orig_link, new_link, room_links, True, print_all=True
+            )
 
     return
 

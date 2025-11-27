@@ -1408,14 +1408,14 @@ def instr_list_to_bytes(instrs: list[tuple[int, V4Instr]]) -> bytes:
     # - create new offsets list based on code size
     pos = instrs[0][0]
     old_bases = [x for x, _ in instrs]
-    print(f"Old bases: {old_bases}")
+    # print(f"Old bases: {old_bases}")
     new_bases = []
     for off, instr in instrs:
         new_bases.append(pos)
         pos += len(v4_instr_to_bytes(instr))
-    print(f"New bases: {new_bases}")
+    # print(f"New bases: {new_bases}")
     for i, (off, instr) in enumerate(instrs):
-        print((off, instr))
+        # print((off, instr))
         if "offset" in instr.args:
             # filter nops
             if instr.name == "jumpRelative" and instr.args["offset"] == 0:
