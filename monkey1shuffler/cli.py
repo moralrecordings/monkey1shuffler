@@ -8,8 +8,9 @@ import random
 import sys
 
 from .mod_misc import debug_mode, skip_code_wheel, turbo_mode
-from .mod_rooms import room_script_fixups, shuffle_rooms
+from .mod_rooms import room_script_fixups, shuffle_forest, shuffle_rooms
 from .mod_sword import non_sequitur_swordfighting
+from .mod_objects import shuffle_objects
 from .resources import dump_all, get_archives, save_all
 from .version import __version__
 
@@ -32,11 +33,11 @@ def main(argv: list[str] | None = None):
         action="store_true",
         help="Ensure that links which connect an indoor to an outdoor area reflect this transition.",
     )
-    parser.add_argument(
-        "--shuffle-objects",
-        action="store_true",
-        help="Randomise which objects you receive when picking things up.",
-    )
+    #parser.add_argument(
+    #    "--shuffle-objects",
+    #    action="store_true",
+    #    help="Randomise which objects you receive when picking things up.",
+    #)
     parser.add_argument(
         "--shuffle-forest",
         action="store_true",
@@ -89,7 +90,7 @@ def main(argv: list[str] | None = None):
 
     use_random = (
         args.shuffle_rooms
-        or args.shuffle_objects
+        #or args.shuffle_objects
         or args.shuffle_forest
         or args.non_sequitur_swordfighting
     )
@@ -106,9 +107,14 @@ def main(argv: list[str] | None = None):
         random.seed(random_seed)
         room_script_fixups(archives, content)
         shuffle_rooms(archives, content, print_all=args.verbose)
+    #if args.shuffle_objects:
+    #    shuffle_objects(archives, content)
     if args.non_sequitur_swordfighting:
         random.seed(random_seed)
         non_sequitur_swordfighting(archives, content, args.change_insult_order)
+    if args.shuffle_forest:
+        random.seed(random_seed)
+        shuffle_forest(archives, content)
     if args.skip_code_wheel:
         skip_code_wheel(archives, content)
     if args.debug_mode:

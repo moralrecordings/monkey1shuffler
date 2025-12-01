@@ -476,7 +476,12 @@ def update_global_model(
 ):
     src = scripts[room_id]["globals"][script_id]
     global_model = get_global_model(archives, scripts, room_id, script_id)
+    #print("Before:")
+    #scumm_v4_tokenizer(global_model.data, print_data=True)
     global_model.data = instr_list_to_bytes(src["script"])
+    #print("After:")
+    #scumm_v4_tokenizer(global_model.data, print_data=True)
+
 
 
 def get_object_model(
@@ -496,7 +501,7 @@ def update_object_model(
     object_model.events = []
     object_model.data = b""
     for verb in src["verbs"].keys():
-        object_model.events.append(ObjectEvent())
+        object_model.events.append(ObjectEvent(parent=object_model))
         object_model.events[-1].verb_id = verb
     start_offset = object_model.get_field_start_offset("data") + 6
     for i, (verb_id, code) in enumerate(src["verbs"].items()):

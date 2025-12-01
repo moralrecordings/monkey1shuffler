@@ -8,6 +8,7 @@ from .resources import (
     IDisassembly,
     IGameData,
     get_global_model,
+    get_object_model,
     update_global_model,
     update_local_model,
     update_object_model,
@@ -70,10 +71,26 @@ def test_mod_dock_poster(archives: dict[str, Any], content: IGameData):
             ]
         },
     )
+    # can only run pickupObject on same room as object
+    #replace = V4Instr(0x50, "pickupObject", args={"obj": 321})
     vx = content[33]["objects"][438]["verbs"][9]
-    vx[-5] = (vx[-5][0], replace)
+    replace = [
+        (0, V4Instr(0x72, "loadRoom", args={"room": 27})),
+        #(vx[-5][0], V4Instr(0x37, "startObject", args={"obj": 321, "script": 0xb, "args": []})),
+        (0, V4Instr(0x50, "pickupObject", args={"obj": 321})),
+        (0, V4Instr(0x72, "loadRoom", args={"room": 33})),
+        (0, V4Instr(0x00, "stopObjectCode")),
+    ]
+
+    vx[:] = replace
+
+    script_model = get_object_model(archives, content, 33, 438)
+    #print("Before:")
+    #scumm_v4_tokenizer(script_model.data, print_data=True)
 
     update_object_model(archives, content, 33, 438)
+    #print("After:")
+    #scumm_v4_tokenizer(script_model.data, print_data=True)
 
 
 def debug_mode(archives: dict[str, Any], content: IGameData):

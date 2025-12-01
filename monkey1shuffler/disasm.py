@@ -214,6 +214,18 @@ def get_vararg(stream: IOBase) -> list[int | V4Var]:
 
     return result
 
+def vararg_to_bytes(args: list[int | V4Var]) -> bytes:
+    result = bytearray()
+    for arg in args:
+        if isinstance(arg, V4Var):
+            result.append(0x80)
+            result.extend(arg.raw())
+        else:
+            result.append(0x00)
+            result.extend(utils.to_int16_le(arg))
+    result.append(0xff)
+    return bytes(result)
+
 
 def get_var(stream: IOBase) -> V4Var:
     var_id = get_unsigned_word(stream)
@@ -1240,6 +1252,11 @@ def parse_expression(stream: IOBase) -> str:
 
 def v4_instr_to_bytes(instr: V4Instr) -> bytes:
     match instr.name:
+        case "stopObjectCode":
+            opcode = 0x00
+            raw = bytes([opcode])
+            return raw
+
         case (
             "isGreaterEqual"
             | "isNotEqual"
@@ -1376,12 +1393,41 @@ def v4_instr_to_bytes(instr: V4Instr) -> bytes:
             raw += utils.to_int16_le(y)
             return raw
 
+        case "startObject":
+            obj = instr.args["obj"]
+            script = instr.args["script"]
+            args = instr.args["args"]
+            a1 = isinstance(obj, V4Var)
+            a2 = isinstance(script, V4Var)
+            opcode = 0x37 | (0x80 if a1 else 0x00) | (0x40 if a2 else 0x00)
+            raw = bytes([opcode])
+            raw += obj.raw() if a1 else utils.to_int16_le(obj)
+            raw += script.raw() if a2 else utils.to_uint8(script)
+            raw += vararg_to_bytes(args)
+            return raw
+
+        case "pickupObject":
+            obj = instr.args["obj"]
+            a1 = isinstance(obj, V4Var)
+            opcode = 0x50 | (0x80 if a1 else 0x00)
+            raw = bytes([opcode])
+            raw += obj.raw() if a1 else utils.to_int16_le(obj)
+            return raw
+
         case "actorFollowCamera":
             act = instr.args["act"]
             a1 = isinstance(act, V4Var)
             opcode = 0x52 | (0x80 if a1 else 0x00)
             raw = bytes([opcode])
             raw += act.raw() if a1 else utils.to_int16_le(act)
+            return raw
+
+        case "loadRoom":
+            room = instr.args["room"]
+            a1 = isinstance(room, V4Var)
+            opcode = 0x72 | (0x80 if a1 else 0x00)
+            raw = bytes([opcode])
+            raw += room.raw() if a1 else utils.to_uint8(room)
             return raw
 
         case "verbOps":
