@@ -211,14 +211,10 @@ def find_room_links(room_id: int, instr_list: list[tuple[int, V4Instr]]):
             continue
         if x.name == "loadRoomWithEgo":
             result.append({"offset": off, "room": target, "op": "loadRoomWithEgo"})
-        elif (
-            x.name == "putActorInRoom"
-            and x.args["act"] == V4Var(1, None)
-        ):
+        elif x.name == "putActorInRoom" and x.args["act"] == V4Var(1, None):
             result.append({"offset": off, "room": target, "op": "putActorInRoom"})
 
     return result
-
 
 
 # finding inter-room links:
@@ -510,9 +506,6 @@ def shuffle_rooms(
         k: v for k, v in room_linkmap.items() if len(v) == 1 and k in room_cluster
     }
 
-    import pdb
-
-    pdb.set_trace()
     ORIGIN = 33
     nodes = set(room_linkmap.keys())
     nodes_to_test = {ORIGIN}
@@ -677,38 +670,59 @@ def fix_cutscene_links(archive: dict[str, Any], content: IGameData):
 def room_script_fixups(archives: dict[str, Any], content: IGameData):
     fix_high_street(archives, content)
     fix_bridge_on_map(archives, content)
-    fix_damn_forest_block(archives, content)
 
     # the game tries to be helpful and blocks you from entering the forest unless
     # you have a map or are stalking the storekeeper. making this work with the randomiser
     # sounds painful, so instead we just disable the check.
 
 
-def find_forest_links(instr_list: list[tuple[int, V4Instr]]):
-    result = []
+class IRoomLink(TypedDict):
+    offset: int
+    src_room: int
+    src_obj: int
+    verb_id: int
+    target_room: int
+    target_obj: int
+    op: str
+
+
+def find_forest_links(
+    obj_id: int, verb_id: int, instr_list: list[tuple[int, V4Instr]]
+) -> list[IRoomLink]:
+    result: list[IRoomLink] = []
     off = 0
     while off < len(instr_list):
         _, w = instr_list[off]
         if w.name == "isEqual" and w.args["a"] == V4Var(4, None):
             src_room = w.args["b"]
-            #if src_room == 215:
+            # if src_room == 215:
             #    import pdb; pdb.set_trace()
             off += 1
             while off < len(instr_list):
                 _, x = instr_list[off]
                 if x.name == "loadRoomWithEgo":
                     result.append(
-                        {"offset": off, "src_room": src_room, "target_room": x.args["room"], "target_obj": x.args["obj"], "op": "loadRoomWithEgo"}
+                        {
+                            "offset": off,
+                            "src_room": src_room,
+                            "src_obj": obj_id,
+                            "verb_id": verb_id,
+                            "target_room": x.args["room"],
+                            "target_obj": x.args["obj"],
+                            "op": "loadRoomWithEgo",
+                        }
                     )
                     break
                 off += 1
         off += 1
     return result
 
+
 def draw_forest(room_nodes, exit_nodes, links, filename):
     import graphviz
+
     g = graphviz.Digraph(
-            edge_attr={"fontsize": "12"}, engine="neato", graph_attr={"layout": "neato"}
+        edge_attr={"fontsize": "12"}, engine="neato", graph_attr={"layout": "neato"}
     )
     for r in room_nodes:
         g.node(f"room_{r}", shape="circle")
@@ -719,29 +733,32 @@ def draw_forest(room_nodes, exit_nodes, links, filename):
             g.edge(f"room_{ex_room}", f"exit_{ex_room}_{ex_src}")
 
     for l in links:
-        g.edge(f"exit_{l['src_room']}_{l['src_obj']}", f"exit_{l['target_room']}_{l['target_obj']}")
+        g.edge(
+            f"exit_{l['src_room']}_{l['src_obj']}",
+            f"exit_{l['target_room']}_{l['target_obj']}",
+        )
     g.render(format="dot", engine="neato", filename=filename)
 
 
 def shuffle_forest(archives: dict[str, Any], content: IGameData):
     EXIT_OBJS = [666, 668, 669]
-    links = []
+    links: list[IRoomLink] = []
     for obj_id in EXIT_OBJS:
         obj = content[58]["objects"][obj_id]
         for verb_id, verb in obj["verbs"].items():
-            for match in find_forest_links(verb):
-                links.append({**match, "verb_id": verb_id, "src_obj": obj_id})
+            for match in find_forest_links(obj_id, verb_id, verb):
+                links.append(match)
 
-    #for x in links:
+    # for x in links:
     #    print(x)
 
-    #import pdb; pdb.set_trace()
+    # import pdb; pdb.set_trace()
     room_nodes = {x["src_room"] for x in links} | {x["target_room"] for x in links}
     exit_nodes = {x["src_room"]: set() for x in links}
     for x in links:
         exit_nodes[x["src_room"]].add(x["src_obj"])
 
-    draw_forest(room_nodes, exit_nodes, links, "/tmp/before.dot")
+    # draw_forest(room_nodes, exit_nodes, links, "/tmp/before.dot")
 
     # the forest is connected together as 3 intersecting loops with 3 entry/exit paths.
     # we want to keep the basic loop structure, but randomise a few things:
@@ -749,7 +766,7 @@ def shuffle_forest(archives: dict[str, Any], content: IGameData):
     #   - pick two hubs
     #   - determine replacement exit mapping
     #   - for each src, target exit in source
-    #       - swap src exit dest and target exit dest 
+    #       - swap src exit dest and target exit dest
     #       - swap links of other side
     # - passage segments between hubs should be randomised
     #   - pick a passage segment
@@ -760,9 +777,20 @@ def shuffle_forest(archives: dict[str, Any], content: IGameData):
     def find_link(room: int, obj: int):
         return [l for l in links if l["src_room"] == room and l["src_obj"] == obj]
 
-    def exchange_links(a, b):
-        src_code = content[58]["objects"][a["src_obj"]]["verbs"][a["verb_id"]]
-        dest_code = content[58]["objects"][b["target_obj"]]["verbs"][b["verb_id"]]
+    def get_code(link: IRoomLink) -> list[IDisassembly]:
+        return content[58]["objects"][link["src_obj"]]["verbs"][link["verb_id"]]
+
+    def get_code_instr(link: IRoomLink) -> V4Instr:
+        code = get_code(link)
+        return code[link["offset"]][1]
+
+    def set_code_instr(link: IRoomLink, instr: V4Instr) -> None:
+        code = get_code(link)
+        code[link["offset"]] = (code[link["offset"]][0], instr)
+
+    def exchange_links(a: IRoomLink, b: IRoomLink) -> None:
+        src_code = get_code(a)
+        dest_code = get_code(b)
         tmp = src_code[a["offset"]]
         src_code[a["offset"]] = (src_code[a["offset"]][0], dest_code[b["offset"]][1])
         dest_code[b["offset"]] = (dest_code[b["offset"]][0], tmp[1])
@@ -772,48 +800,120 @@ def shuffle_forest(archives: dict[str, Any], content: IGameData):
         a.update(b_target)
         b.update(a_target)
 
-    def room_link_swap(src_room: int, src_obj: int, dest_room: int, dest_obj: int):
-        src_link = find_link(src_room, src_obj)[0] 
+    def move_passage(a: IRoomLink, b: IRoomLink, c: IRoomLink, d: IRoomLink) -> None:
+        # remove passage from old segment and join ends
+        left = find_link(a["target_room"], a["target_obj"])[0]
+        right = find_link(b["target_room"], b["target_obj"])[0]
+        a_code = get_code_instr(a)
+        b_code = get_code_instr(b)
+        left_code = get_code_instr(left)
+        right_code = get_code_instr(right)
+        set_code_instr(left, b_code)
+        set_code_instr(right, a_code)
+        left["target_room"] = right["src_room"]
+        left["target_obj"] = right["src_obj"]
+        right["target_room"] = left["src_room"]
+        right["target_obj"] = left["src_obj"]
+
+        # attach passage to new segment
+        c_code = get_code_instr(c)
+        d_code = get_code_instr(d)
+        set_code_instr(a, d_code)
+        set_code_instr(b, c_code)
+        a["target_room"] = d["target_room"]
+        a["target_obj"] = d["target_obj"]
+        b["target_room"] = c["target_room"]
+        b["target_obj"] = c["target_obj"]
+
+        # adjust segment to point to passage
+        set_code_instr(c, left_code)
+        set_code_instr(d, right_code)
+        c["target_room"] = a["src_room"]
+        c["target_obj"] = a["src_obj"]
+        d["target_room"] = b["src_room"]
+        d["target_obj"] = b["src_obj"]
+
+    def room_link_swap(
+        src_room: int, src_obj: int, dest_room: int, dest_obj: int
+    ) -> None:
+        src_link = find_link(src_room, src_obj)[0]
         dest_link = find_link(dest_room, dest_obj)[0]
         src_end_link = find_link(src_link["target_room"], src_link["target_obj"])[0]
         dest_end_link = find_link(dest_link["target_room"], dest_link["target_obj"])[0]
 
         print(src_link)
         print(dest_link)
-        import pdb; pdb.set_trace()
 
         exchange_links(src_link, dest_link)
         exchange_links(src_end_link, dest_end_link)
-        
+
+    def room_link_inject(
+        src_room: int,
+        src_obj_left: int,
+        src_obj_right: int,
+        dest_room: int,
+        dest_obj: int,
+    ) -> None:
+        src_link_left = find_link(src_room, src_obj_left)[0]
+        src_link_right = find_link(src_room, src_obj_right)[0]
+        src_end_link_left = find_link(
+            src_link_left["target_room"], src_link_left["target_obj"]
+        )[0]
+        src_end_link_right = find_link(
+            src_link_right["target_room"], src_link_right["target_obj"]
+        )[0]
+
+        dest_link = find_link(dest, dest_obj)[0]
+        dest_link_end = find_link(dest_link["target_room"], dest_link["target_obj"])[0]
+
+        print(src_link_left)
+        print(dest_link)
+        print(src_link_right)
+        print(dest_link_end)
+
+        move_passage(src_link_left, src_link_right, dest_link, dest_link_end)
 
     # rooms 201, 206, 209 and 218 are links to outside the forest and should be preserved
     FOREST_SKIP = {201, 206, 209, 218}
-    FOREST_HUBS = {r for r in room_nodes if r >= 200 and r not in FOREST_SKIP and len(exit_nodes[r]) > 2}
-    FOREST_PASSAGES = {r for r in room_nodes if r >= 200 and r not in FOREST_SKIP and len(exit_nodes[r]) == 2}
-    for src_hub in FOREST_HUBS:
+    FOREST_HUBS = {
+        r
+        for r in room_nodes
+        if r >= 200 and r not in FOREST_SKIP and len(exit_nodes[r]) > 2
+    }
+    FOREST_PASSAGES = {
+        r
+        for r in room_nodes
+        if r >= 200 and r not in FOREST_SKIP and len(exit_nodes[r]) == 2
+    }
+    for src_hub in sorted(FOREST_HUBS):
         dest_hub = random.choice(list(sorted(FOREST_HUBS ^ {src_hub})))
         src_choices = list(sorted(exit_nodes[src_hub]))
         dest_choices = list(exit_nodes[dest_hub])
         random.shuffle(dest_choices)
-        
+
         for i in range(3):
             room_link_swap(src_hub, src_choices[i], dest_hub, dest_choices[i])
-        
-        tmp = exit_nodes[src_hub]
-        exit_nodes[src_hub] = exit_nodes[dest_hub]
-        exit_nodes[dest_hub] = tmp
-        break
 
-    for obj in EXIT_OBJS:
-        print(f"Before {obj}:")
-        scumm_v4_tokenizer(get_object_model(archives, content, 58, obj).data, print_data=True)
-        update_object_model(archives, content, 58, obj)
-        print(f"After {obj}:")
-        scumm_v4_tokenizer(get_object_model(archives, content, 58, obj).data, print_data=True)
-    draw_forest(room_nodes, exit_nodes, links, "/tmp/after.dot")
+    for src_passage in sorted(FOREST_PASSAGES):
+        dest = random.choice(list(sorted(FOREST_HUBS)))
+        dest_obj = random.choice(list(exit_nodes[dest]))
+        src_choices = list(sorted(exit_nodes[src_passage]))
+        random.shuffle(src_choices)
+        src_a_obj, src_b_obj = src_choices[0], src_choices[1]
 
-    pass
+        room_link_inject(src_passage, src_a_obj, src_b_obj, dest, dest_obj)
 
+    # for obj in EXIT_OBJS:
+    #    print(f"Before {obj}:")
+    #    scumm_v4_tokenizer(
+    #        get_object_model(archives, content, 58, obj).data, print_data=True
+    #    )
+    #    update_object_model(archives, content, 58, obj)
+    #    print(f"After {obj}:")
+    #    scumm_v4_tokenizer(
+    #        get_object_model(archives, content, 58, obj).data, print_data=True
+    #    )
+    # draw_forest(room_nodes, exit_nodes, links, "/tmp/after.dot")
 
 
 def room_links_1():
