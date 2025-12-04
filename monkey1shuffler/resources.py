@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import pathlib
 from typing import Any, TypedDict
 
@@ -196,11 +195,11 @@ def get_archives(path: pathlib.Path) -> dict[str, Any]:
             if bodge:
                 f[bodge[0][0] : bodge[0][0] + 4] = utils.to_uint32_le(0x8115)
         f = bytes(f)
-        print(f"Parsing {arch} ({len(f)} bytes, md5 {hashlib.md5(f).hexdigest()})...")
+        print(f"Parsing {arch} ({len(f)} bytes)...")
         result[arch] = LEC(f, strict=True)
     with open(path / "000.LFL", "rb") as file:
         f = file.read()
-        print(f"Parsing 000.LFL ({len(f)} bytes, md5 {hashlib.md5(f).hexdigest()})...")
+        print(f"Parsing 000.LFL ({len(f)} bytes)...")
         result["000.LFL"] = LFL(f, strict=True)
     return result
 
@@ -476,12 +475,11 @@ def update_global_model(
 ):
     src = scripts[room_id]["globals"][script_id]
     global_model = get_global_model(archives, scripts, room_id, script_id)
-    #print("Before:")
-    #scumm_v4_tokenizer(global_model.data, print_data=True)
+    # print("Before:")
+    # scumm_v4_tokenizer(global_model.data, print_data=True)
     global_model.data = instr_list_to_bytes(src["script"])
-    #print("After:")
-    #scumm_v4_tokenizer(global_model.data, print_data=True)
-
+    # print("After:")
+    # scumm_v4_tokenizer(global_model.data, print_data=True)
 
 
 def get_object_model(
