@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import pathlib
 import random
 from collections import defaultdict
 from typing import Any, Literal, NotRequired, Optional, TypedDict
@@ -554,7 +555,7 @@ def draw_forest(
     room_nodes: set[int],
     exit_nodes: dict[int, set[int]],
     links: list[IRoomLink],
-    filename: str,
+    filename: pathlib.Path,
 ):
     try:
         import graphviz
@@ -576,11 +577,11 @@ def draw_forest(
             f"exit_{l['source']['room']}_{l['source']['id']}",
             f"exit_{l['target']['room']}_{l['target']['id']}",
         )
-    g.render(format="dot", engine="neato", filename=filename)
+    g.render(format="dot", engine="neato", filename=str(filename))
 
 
 def shuffle_rooms(
-    archives: dict[str, Any], content: IGameData, print_all: bool = False
+        archives: dict[str, Any], content: IGameData, print_all: bool = False, output_maps: pathlib.Path | None = None
 ):
     links = generate_room_links(archives, content)
     start_room = 33
@@ -603,7 +604,8 @@ def shuffle_rooms(
 
     room_nodes, exit_nodes = get_rooms_and_exits(room_links)
 
-    draw_forest(room_nodes, exit_nodes, room_links, "rooms_before.dot")
+    if output_maps:
+        draw_forest(room_nodes, exit_nodes, room_links, output_maps / "rooms_before.dot")
 
     # start from the dock
     # - start from the first room
@@ -723,7 +725,8 @@ def shuffle_rooms(
 
     write_changes_from_links(archives, content, links_to_write)
 
-    draw_forest(room_nodes, exit_nodes, room_links, "rooms_after.dot")
+    if output_maps:
+        draw_forest(room_nodes, exit_nodes, room_links, output_maps / "rooms_after.dot")
 
     return
 
@@ -896,7 +899,7 @@ def find_forest_links(
     return result
 
 
-def shuffle_forest(archives: dict[str, Any], content: IGameData):
+def shuffle_forest(archives: dict[str, Any], content: IGameData, output_maps: pathlib.Path | None=None) -> None:
     EXIT_OBJS = [666, 668, 669]
     links: list[IRoomLink] = []
     for obj_id in EXIT_OBJS:
@@ -908,8 +911,9 @@ def shuffle_forest(archives: dict[str, Any], content: IGameData):
     # for x in links:
     #    print(x)
     room_nodes, exit_nodes = get_rooms_and_exits(links)
-
-    draw_forest(room_nodes, exit_nodes, links, "/tmp/before.dot")
+    
+    if output_maps:
+        draw_forest(room_nodes, exit_nodes, links, output_maps / "forest_before.dot")
 
     # the forest is connected together as 3 intersecting loops with 3 entry/exit paths.
     # we want to keep the basic loop structure, but randomise a few things:
@@ -969,7 +973,8 @@ def shuffle_forest(archives: dict[str, Any], content: IGameData):
     #    scumm_v4_tokenizer(
     #        get_object_model(archives, content, 58, obj).data, print_data=True
     #    )
-    draw_forest(room_nodes, exit_nodes, links, "/tmp/after.dot")
+    if output_maps:
+        draw_forest(room_nodes, exit_nodes, links, output_maps / "forest_after.dot")
 
 
 def room_links_1():

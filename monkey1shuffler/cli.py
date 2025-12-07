@@ -49,6 +49,11 @@ def main(argv: list[str] | None = None):
         help="Rearrange the subroom links of the Mêlée Island™ forest.",
     )
     parser.add_argument(
+        "--output-maps",
+        type=pathlib.Path,
+        help="Export game maps in DOT format (requires graphviz)"
+    )
+    parser.add_argument(
         "--non-sequitur-swordfighting",
         action="store_true",
         help="Shuffle the mapping of insults to retorts for the insult swordfighting section. Sword Master insults will respect the new ordering.",
@@ -114,15 +119,15 @@ def main(argv: list[str] | None = None):
     if args.shuffle_rooms:
         random.seed(random_seed)
         room_script_fixups(archives, content)
-        shuffle_rooms(archives, content, print_all=args.verbose)
+        shuffle_rooms(archives, content, print_all=args.verbose, output_maps=args.output_maps)
+    if args.shuffle_forest:
+        random.seed(random_seed)
+        shuffle_forest(archives, content, output_maps=args.output_maps)
     # if args.shuffle_objects:
     #    shuffle_objects(archives, content)
     if args.non_sequitur_swordfighting:
         random.seed(random_seed)
         non_sequitur_swordfighting(archives, content, args.change_insult_order)
-    if args.shuffle_forest:
-        random.seed(random_seed)
-        shuffle_forest(archives, content)
     if args.skip_code_wheel:
         skip_code_wheel(archives, content)
     if args.debug_mode:
