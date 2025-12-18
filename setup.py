@@ -19,7 +19,7 @@ setup(
     python_requires=">=3",
     install_requires=[
         "typing_extensions",
-        "mrcrowbar >= 0.9.0",
+        "mrcrowbar >= 1.0.0rc1",
     ],
     extras_require={},
     packages=["monkey1shuffler"],
