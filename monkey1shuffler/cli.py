@@ -7,7 +7,7 @@ import pathlib
 import random
 import sys
 
-from .mod_misc import debug_mode, skip_code_wheel, turbo_mode
+from .mod_misc import add_version_tag, debug_mode, skip_code_wheel, turbo_mode
 from .mod_objects import shuffle_objects
 from .mod_rooms import (
     fix_damn_forest_block,
@@ -51,7 +51,7 @@ def main(argv: list[str] | None = None):
     parser.add_argument(
         "--output-maps",
         type=pathlib.Path,
-        help="Export game maps in DOT format (requires graphviz)"
+        help="Export game maps in DOT format (requires graphviz)",
     )
     parser.add_argument(
         "--non-sequitur-swordfighting",
@@ -107,11 +107,13 @@ def main(argv: list[str] | None = None):
     random_seed = args.random_seed
     if not random_seed:
         random_seed = random.randint(0, 2**32)
-    if use_random:
-        print(f"Using random seed {random_seed}")
 
     archives = get_archives(args.SOURCE)
     content = dump_all(archives, print_data=args.verbose)
+    if use_random:
+        print(f"Using random seed {random_seed}")
+        add_version_tag(archives, content, random_seed)
+
     print("Modifying code...")
     if args.shuffle_rooms or args.shuffle_forest:
         fix_damn_forest_block(archives, content)
@@ -119,7 +121,9 @@ def main(argv: list[str] | None = None):
     if args.shuffle_rooms:
         random.seed(random_seed)
         room_script_fixups(archives, content)
-        shuffle_rooms(archives, content, print_all=args.verbose, output_maps=args.output_maps)
+        shuffle_rooms(
+            archives, content, print_all=args.verbose, output_maps=args.output_maps
+        )
     if args.shuffle_forest:
         random.seed(random_seed)
         shuffle_forest(archives, content, output_maps=args.output_maps)

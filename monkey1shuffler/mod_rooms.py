@@ -304,11 +304,11 @@ def generate_room_links(
     #        for global_id, glob in room["globals"].items():
     #            for match in find_room_links(room_id, "global", global_id, None, glob['script']):
     #               result.append(match)
-    ROOM_NAMES = get_room_names(archives)
-    for x in sorted(result, key=lambda x: (x["source"]["room"], x["target"]["room"])):
-        print(
-            ROOM_NAMES.get(x["source"]["room"]), ROOM_NAMES.get(x["target"]["room"]), x
-        )
+    # ROOM_NAMES = get_room_names(archives)
+    # for x in sorted(result, key=lambda x: (x["source"]["room"], x["target"]["room"])):
+    #    print(
+    #        ROOM_NAMES.get(x["source"]["room"]), ROOM_NAMES.get(x["target"]["room"]), x
+    #    )
     return result
 
 
@@ -556,6 +556,7 @@ def draw_forest(
     exit_nodes: dict[int, set[int]],
     links: list[IRoomLink],
     filename: pathlib.Path,
+    room_names: dict[int, str] = {},
 ):
     try:
         import graphviz
@@ -565,7 +566,10 @@ def draw_forest(
         edge_attr={"fontsize": "12"}, engine="neato", graph_attr={"layout": "neato"}
     )
     for r in room_nodes:
-        g.node(f"room_{r}", shape="circle")
+        label = f"room_{r}"
+        if r in room_names:
+            label += f"\n{room_names[r]}"
+        g.node(f"room_{r}", label, shape="circle")
 
     for ex_room, srcset in exit_nodes.items():
         for ex_src in srcset:
@@ -581,8 +585,12 @@ def draw_forest(
 
 
 def shuffle_rooms(
-        archives: dict[str, Any], content: IGameData, print_all: bool = False, output_maps: pathlib.Path | None = None
+    archives: dict[str, Any],
+    content: IGameData,
+    print_all: bool = False,
+    output_maps: pathlib.Path | None = None,
 ):
+    room_names = get_room_names(archives)
     links = generate_room_links(archives, content)
     start_room = 33
     room_cluster = find_room_cluster(links, start_room)
@@ -605,7 +613,13 @@ def shuffle_rooms(
     room_nodes, exit_nodes = get_rooms_and_exits(room_links)
 
     if output_maps:
-        draw_forest(room_nodes, exit_nodes, room_links, output_maps / "rooms_before.dot")
+        draw_forest(
+            room_nodes,
+            exit_nodes,
+            room_links,
+            output_maps / "rooms_before.dot",
+            room_names=room_names,
+        )
 
     # start from the dock
     # - start from the first room
@@ -671,10 +685,10 @@ def shuffle_rooms(
             # orig_link_end = find_link_room(room_links, orig_link[0]["target"]["room"], orig_link[0]["source"]["room"])
             # hub_link_end = find_link_room(room_links, hub_link[0]["target"]["room"], hub_link[0]["source"]["room"])
 
-            print(orig_link)
-            print(hub_link)
-            print(orig_link_end)
-            print(hub_link_end)
+            # print(orig_link)
+            # print(hub_link)
+            # print(orig_link_end)
+            # print(hub_link_end)
             exchange_multilinks(content, orig_link, hub_link_end)
             exchange_multilinks(content, hub_link, orig_link_end)
             links_to_write.extend(
@@ -692,6 +706,7 @@ def shuffle_rooms(
 
             edges_left.extend(hub_edges)
         elif dead_ends:
+            break
             orig_link = find_link(room_links, orig_edge[0], orig_edge[1])
             dead_end_options = [
                 x for x in dead_ends.keys() if x != orig_link[0]["target"]["room"]
@@ -708,10 +723,10 @@ def shuffle_rooms(
                 room_links, dead_end_room, dead_end_id
             )
 
-            print(orig_link)
-            print(dead_end_link)
-            print(orig_link_end)
-            print(dead_end_link_end)
+            # print(orig_link)
+            # print(dead_end_link)
+            # print(orig_link_end)
+            # print(dead_end_link_end)
             #            import pdb; pdb.set_trace()
 
             exchange_multilinks(content, orig_link, dead_end_link_end)
@@ -726,7 +741,13 @@ def shuffle_rooms(
     write_changes_from_links(archives, content, links_to_write)
 
     if output_maps:
-        draw_forest(room_nodes, exit_nodes, room_links, output_maps / "rooms_after.dot")
+        draw_forest(
+            room_nodes,
+            exit_nodes,
+            room_links,
+            output_maps / "rooms_after.dot",
+            room_names=room_names,
+        )
 
     return
 
@@ -899,7 +920,11 @@ def find_forest_links(
     return result
 
 
-def shuffle_forest(archives: dict[str, Any], content: IGameData, output_maps: pathlib.Path | None=None) -> None:
+def shuffle_forest(
+    archives: dict[str, Any],
+    content: IGameData,
+    output_maps: pathlib.Path | None = None,
+) -> None:
     EXIT_OBJS = [666, 668, 669]
     links: list[IRoomLink] = []
     for obj_id in EXIT_OBJS:
@@ -911,7 +936,7 @@ def shuffle_forest(archives: dict[str, Any], content: IGameData, output_maps: pa
     # for x in links:
     #    print(x)
     room_nodes, exit_nodes = get_rooms_and_exits(links)
-    
+
     if output_maps:
         draw_forest(room_nodes, exit_nodes, links, output_maps / "forest_before.dot")
 
